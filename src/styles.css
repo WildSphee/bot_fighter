@@ -180,7 +180,8 @@ button {
 .metric-panel,
 .score-band,
 .event-feed,
-.stat-box {
+.stat-box,
+.soundtrack-panel {
   background: #fffaf0;
   border: 1px solid rgba(42, 48, 54, 0.12);
   border-radius: 8px;
@@ -189,6 +190,12 @@ button {
 .robot-editor {
   display: grid;
   gap: 12px;
+  padding: 12px;
+}
+
+.soundtrack-panel {
+  display: grid;
+  gap: 10px;
   padding: 12px;
 }
 
@@ -449,9 +456,53 @@ button {
   color: #187b70;
 }
 
+.track-row {
+  align-items: center;
+  border-top: 1px solid rgba(42, 48, 54, 0.1);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 42px;
+  padding-top: 10px;
+}
+
+.track-row div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.track-row strong {
+  color: #1d2730;
+  font-size: 14px;
+}
+
+.track-row span {
+  color: #66717a;
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.policy-link {
+  align-items: center;
+  color: #7f2f45;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  gap: 6px;
+  text-decoration: none;
+}
+
 .history-item small,
 .muted {
   color: #66717a;
+}
+
+button:disabled {
+  cursor: progress;
+  opacity: 0.68;
 }
 
 .muted {

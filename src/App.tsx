@@ -1,14 +1,22 @@
 import {
   Dices,
   Download,
+  ExternalLink,
+  FileJson,
+  Music,
   Play,
   RefreshCw,
+  Volume2,
+  VolumeX,
   Settings2,
   Shuffle,
   Swords,
   Trophy,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { NCS_TRACKS, NCS_USAGE_POLICY_URL } from "./audio/ncsCatalog";
+import { createSoundEngine, type SoundEngine } from "./audio/sfx";
+import { recordReel } from "./export/recordReel";
 import { drawFightFrame } from "./render/drawFight";
 import {
   MOVEMENT_DICE,
@@ -17,7 +25,7 @@ import {
   createDefaultFightConfig,
 } from "./sim/catalog";
 import { cloneFightConfig, simulateFight } from "./sim/engine";
-import type { FightConfig, FightResult, RobotConfig, WeaponId } from "./sim/types";
+import type { FightConfig, FightResult, RobotConfig } from "./sim/types";
 
 type Tab = "setup" | "dice" | "export" | "history";
 
@@ -40,10 +48,15 @@ export default function App() {
   const [speed, setSpeed] = useState(1);
   const [activeTab, setActiveTab] = useState<Tab>("setup");
   const [isPlaying, setIsPlaying] = useState(true);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [isRecording, setIsRecording] = useState(false);
+  const [exportStatus, setExportStatus] = useState("Ready");
   const [frameIndex, setFrameIndex] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>(() => readHistory());
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const startedAtRef = useRef<number | null>(null);
+  const lastSoundTimeRef = useRef(-0.01);
+  const soundEngineRef = useRef<SoundEngine | null>(null);
 
   const config = useMemo<FightConfig>(
     () => ({
@@ -65,6 +78,7 @@ export default function App() {
   useEffect(() => {
     setFrameIndex(0);
     startedAtRef.current = null;
+    lastSoundTimeRef.current = -0.01;
   }, [result]);
 
   useEffect(() => {
@@ -80,6 +94,7 @@ export default function App() {
   useEffect(() => {
     if (!isPlaying) {
       startedAtRef.current = null;
+      lastSoundTimeRef.current = -0.01;
       return;
     }
 
@@ -108,12 +123,47 @@ export default function App() {
     return () => window.cancelAnimationFrame(animationId);
   }, [frame.time, isPlaying, result.frames, speed]);
 
+  useEffect(() => {
+    if (!isPlaying || !soundEnabled || !soundEngineRef.current) {
+      return;
+    }
+
+    for (const event of result.events) {
+      if (
+        "sound" in event &&
+        event.time > lastSoundTimeRef.current &&
+        event.time <= frame.time
+      ) {
+        soundEngineRef.current.play(event.sound);
+      }
+    }
+
+    lastSoundTimeRef.current = frame.time;
+  }, [frame.time, isPlaying, result.events, soundEnabled]);
+
   function updateRobot(robotId: string, updater: (robot: RobotConfig) => RobotConfig) {
     setRobots((current) => current.map((robot) => (robot.id === robotId ? updater(robot) : robot)));
   }
 
   function randomizeSeed() {
     setSeed(`fight-${Date.now().toString(36)}`);
+    setIsPlaying(true);
+  }
+
+  function ensureSoundEngine() {
+    if (!soundEngineRef.current) {
+      soundEngineRef.current = createSoundEngine();
+    }
+    void soundEngineRef.current.context.resume();
+  }
+
+  function startPreview() {
+    if (soundEnabled) {
+      ensureSoundEngine();
+    }
+    setFrameIndex(0);
+    lastSoundTimeRef.current = -0.01;
+    startedAtRef.current = null;
     setIsPlaying(true);
   }
 
@@ -145,6 +195,33 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  async function exportReel() {
+    const canvas = canvasRef.current;
+    if (!canvas || isRecording) {
+      return;
+    }
+
+    setIsRecording(true);
+    setIsPlaying(false);
+    setExportStatus("Recording");
+
+    try {
+      const recording = await recordReel(canvas, result, soundEnabled);
+      saveToHistory(result);
+      const url = URL.createObjectURL(recording.blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${seed}-reel.${recording.extension}`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setExportStatus(recording.extension.toUpperCase());
+    } catch (error) {
+      setExportStatus(error instanceof Error ? error.message : "Export failed");
+    } finally {
+      setIsRecording(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -157,19 +234,27 @@ export default function App() {
             <Shuffle size={19} />
           </button>
           <button
-            className="primary-button"
+            className="icon-button"
+            title={soundEnabled ? "Mute sounds" : "Enable sounds"}
             onClick={() => {
-              setFrameIndex(0);
-              startedAtRef.current = null;
-              setIsPlaying(true);
+              setSoundEnabled((current) => !current);
+              if (!soundEnabled) {
+                ensureSoundEngine();
+              }
             }}
+          >
+            {soundEnabled ? <Volume2 size={19} /> : <VolumeX size={19} />}
+          </button>
+          <button
+            className="primary-button"
+            onClick={startPreview}
           >
             <Play size={18} />
             Preview
           </button>
-          <button className="secondary-button" onClick={downloadConfig}>
+          <button className="secondary-button" onClick={exportReel} disabled={isRecording}>
             <Download size={18} />
-            Export
+            {isRecording ? "Recording" : "Export"}
           </button>
         </div>
       </header>
@@ -360,9 +445,42 @@ export default function App() {
                 <strong>{result.duration.toFixed(1)}s</strong>
               </section>
               <button className="primary-button full-width" onClick={downloadConfig}>
-                <Download size={18} />
-                Export Reel Config
+                <FileJson size={18} />
+                Export Fight Data
               </button>
+              <button className="secondary-button full-width" onClick={exportReel} disabled={isRecording}>
+                <Download size={18} />
+                {isRecording ? "Recording Reel" : "Record Reel"}
+              </button>
+              <section className="metric-panel">
+                <span>Status</span>
+                <strong>{exportStatus}</strong>
+              </section>
+              <section className="soundtrack-panel">
+                <div className="robot-editor__header">
+                  <Music size={17} />
+                  <strong>NCS credits</strong>
+                </div>
+                {NCS_TRACKS.map((track) => (
+                  <div className="track-row" key={track.title}>
+                    <div>
+                      <strong>{track.title}</strong>
+                      <span>{track.artists.join(", ")} · {track.genre}</span>
+                    </div>
+                    <button
+                      className="icon-button"
+                      title="Copy credit"
+                      onClick={() => void navigator.clipboard.writeText(track.credit)}
+                    >
+                      <FileJson size={16} />
+                    </button>
+                  </div>
+                ))}
+                <a className="policy-link" href={NCS_USAGE_POLICY_URL} target="_blank" rel="noreferrer">
+                  Usage policy
+                  <ExternalLink size={15} />
+                </a>
+              </section>
             </div>
           )}
 
