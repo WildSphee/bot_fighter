@@ -102,12 +102,11 @@ function drawBackground(context: CanvasRenderingContext2D, layout: Layout, time:
 }
 
 function drawBackgroundCubes(context: CanvasRenderingContext2D, layout: Layout, time: number) {
-  const cubeCount = 14;
+  const cubeCount = 18;
 
   context.save();
-  context.globalAlpha = 0.1;
-  context.strokeStyle = "#d7f8ff";
-  context.lineWidth = 2;
+  context.globalAlpha = 0.22;
+  context.lineWidth = 2.5;
 
   for (let index = 0; index < cubeCount; index += 1) {
     const drift = (time * 0.045 + index * 0.071) % 1;
@@ -120,6 +119,9 @@ function drawBackgroundCubes(context: CanvasRenderingContext2D, layout: Layout, 
     context.save();
     context.translate(x, y);
     context.rotate(time * 0.16 + index * 0.7);
+    context.strokeStyle = index % 2 === 0 ? "#8ae9ff" : "#ffdd78";
+    context.shadowBlur = 10;
+    context.shadowColor = context.strokeStyle;
     context.strokeRect(-size / 2, -size / 2, size, size);
     context.strokeRect(-size / 2 + size * 0.18, -size / 2 - size * 0.18, size, size);
     context.beginPath();
@@ -149,11 +151,11 @@ function drawTopBar(
   context.fillStyle = "#fff7e6";
   context.font = "900 36px Inter, system-ui, sans-serif";
   context.textAlign = "center";
-  context.fillText("BOT FIGHTER", layout.width / 2, 44);
+  context.fillText("FIGHT LAB- WHO WILL WIN?", layout.width / 2, 44);
 
   const slots = topSlots(frame.robots, layout);
   frame.robots.slice(0, 4).forEach((robot, index) => {
-    drawTopRobotStatus(context, robot, slots[index], index % 2 === 1);
+    drawTopRobotStatus(context, robot, slots[index], index % 2 === 1, frame.time, result.events);
   });
 
   context.restore();
@@ -179,11 +181,19 @@ function drawTopRobotStatus(
   context: CanvasRenderingContext2D,
   robot: RobotFrame,
   rect: Rect,
-  alignRight: boolean
+  alignRight: boolean,
+  time: number,
+  events: FightEvent[]
 ) {
   const hpRatio = Math.max(0, robot.hp / robot.maxHp);
   const shieldRatio = Math.max(0, robot.shield / robot.maxShield);
   const textX = alignRight ? rect.x + rect.width : rect.x;
+  const shake = healthShakeFor(robot.id, time, events);
+  const shakeX = shake * Math.sin(time * 92 + robot.id.length) * 5;
+  const shakeY = shake * Math.cos(time * 77 + robot.id.length) * 2;
+
+  context.save();
+  context.translate(shakeX, shakeY);
 
   context.textAlign = alignRight ? "right" : "left";
   context.fillStyle = "rgba(255,255,255,0.16)";
@@ -199,6 +209,7 @@ function drawTopRobotStatus(
   context.fillStyle = "#ffffff";
   context.font = "800 19px Inter, system-ui, sans-serif";
   context.fillText(`${Math.ceil(robot.hp)} / ${robot.maxHp} HP`, textX, rect.y + 56);
+  context.restore();
 }
 
 function drawArena(
@@ -238,13 +249,6 @@ function drawArena(
   context.strokeStyle = "#2fffc8";
   context.lineWidth = 2;
   context.strokeRect(rect.x + 20, rect.y + 20, rect.width - 40, rect.height - 40);
-
-  context.save();
-  context.textAlign = "right";
-  context.fillStyle = "rgba(255, 247, 230, 0.5)";
-  context.font = "700 16px Inter, system-ui, sans-serif";
-  context.fillText(arena.name, rect.x + rect.width - 24, rect.y + 34);
-  context.restore();
 }
 
 function drawEffects(
@@ -1008,6 +1012,22 @@ function getActiveRoll(
   }
 
   return undefined;
+}
+
+function healthShakeFor(robotId: string, time: number, events: FightEvent[]): number {
+  const hits = events
+    .filter(
+      (event): event is Extract<FightEvent, { type: "hit" }> =>
+        event.type === "hit" && event.targetId === robotId && event.time <= time
+    );
+  const lastHit = hits[hits.length - 1];
+
+  if (!lastHit) {
+    return 0;
+  }
+
+  const age = time - lastHit.time;
+  return age >= 0 && age <= 0.28 ? 1 - age / 0.28 : 0;
 }
 
 function getClassName(classId: string): string {
