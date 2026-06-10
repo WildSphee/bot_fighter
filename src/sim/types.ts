@@ -126,14 +126,19 @@ export type EffectFrame = {
     | "cone"
     | "muzzle"
     | "spark"
-    | "mine";
+    | "mine"
+    | "bit"
+    | "telegraph";
   position: Vec2;
   endPosition?: Vec2;
+  velocity?: Vec2;
   weaponId?: WeaponId;
   radius: number;
   age: number;
   duration: number;
   color: string;
+  spin?: number;
+  variant?: number;
 };
 
 export type FightFrame = {

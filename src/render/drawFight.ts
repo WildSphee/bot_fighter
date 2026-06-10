@@ -15,7 +15,7 @@ const ACTION_BAR_HEIGHT = 330;
 const FIELD_PADDING_X = 64;
 const FIELD_GAP_TOP = 28;
 const FIELD_GAP_BOTTOM = 44;
-const ROBOT_RADIUS = 30;
+const ROBOT_RADIUS = 38;
 
 type Layout = {
   width: number;
@@ -254,8 +254,20 @@ function drawEffects(
   layout: Layout
 ) {
   for (const effect of frame.effects) {
-    const position = mapPoint(effect.position, arena, layout.arena);
+    const worldPosition =
+      effect.type === "bit" && effect.velocity
+        ? {
+            x: effect.position.x + effect.velocity.x * effect.age,
+            y: effect.position.y + effect.velocity.y * effect.age,
+          }
+        : effect.position;
+    const position = mapPoint(worldPosition, arena, layout.arena);
     const alpha = Math.max(0, 1 - effect.age / effect.duration);
+
+    if (effect.type === "telegraph" && effect.endPosition) {
+      drawBeamEffect(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena), alpha * 0.42);
+      continue;
+    }
 
     if (effect.type === "beam" && effect.endPosition) {
       drawBeamEffect(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena), alpha);
@@ -272,12 +284,17 @@ function drawEffects(
     context.strokeStyle = effect.color;
     context.fillStyle = effect.color;
     context.lineWidth = effect.type === "trail" || effect.type === "spark" ? 4 : 7;
-    context.beginPath();
     const radius = effect.radius * 0.68 * (1 + effect.age);
-    context.arc(position.x, position.y, radius, 0, Math.PI * 2);
-    if (effect.type === "shield" || effect.type === "emp" || effect.type === "mine") {
+
+    if (effect.type === "bit") {
+      drawDebrisBit(context, position, radius, effect.age, effect.spin ?? 1, effect.variant ?? 0);
+    } else if (effect.type === "shield" || effect.type === "emp" || effect.type === "mine") {
+      context.beginPath();
+      context.arc(position.x, position.y, radius, 0, Math.PI * 2);
       context.stroke();
     } else if (effect.type === "muzzle") {
+      context.beginPath();
+      context.arc(position.x, position.y, radius, 0, Math.PI * 2);
       context.fill();
       context.strokeStyle = "#ffffff";
       context.lineWidth = 2;
@@ -285,10 +302,42 @@ function drawEffects(
     } else if (effect.type === "spark" || effect.type === "trail") {
       drawParticleStar(context, position, Math.max(4, radius), effect.age);
     } else {
+      context.beginPath();
+      context.arc(position.x, position.y, radius, 0, Math.PI * 2);
       context.fill();
     }
     context.restore();
   }
+}
+
+function drawDebrisBit(
+  context: CanvasRenderingContext2D,
+  position: Vec2,
+  radius: number,
+  age: number,
+  spin: number,
+  variant: number
+) {
+  context.save();
+  context.translate(position.x, position.y);
+  context.rotate(age * spin);
+
+  if (variant === 0) {
+    context.fillRect(-radius, -radius * 0.7, radius * 2, radius * 1.4);
+  } else if (variant === 1) {
+    context.beginPath();
+    context.moveTo(0, -radius);
+    context.lineTo(radius * 1.15, radius);
+    context.lineTo(-radius, radius * 0.7);
+    context.closePath();
+    context.fill();
+  } else {
+    context.beginPath();
+    context.arc(0, 0, radius, 0, Math.PI * 2);
+    context.fill();
+  }
+
+  context.restore();
 }
 
 function drawBeamEffect(
@@ -444,24 +493,7 @@ function drawRobots(
     context.rotate(robot.angle);
     context.globalAlpha = robot.alive ? 1 : 0.38;
 
-    context.shadowBlur = robot.alive ? 18 : 0;
-    context.shadowColor = robot.palette.glow;
-    context.fillStyle = robot.palette.body;
-    context.strokeStyle = "#ffffff";
-    context.lineWidth = 4;
-    context.beginPath();
-    context.roundRect(-30, -26, 60, 52, 9);
-    context.fill();
-    context.stroke();
-
-    context.shadowBlur = 0;
-    context.fillStyle = robot.palette.trim;
-    context.fillRect(-7, -22, 25, 44);
-    context.fillStyle = robot.palette.glow;
-    context.fillRect(18, -12, 20, 24);
-    context.fillStyle = "#f9fbff";
-    context.fillRect(-21, -13, 11, 9);
-    context.fillRect(-21, 5, 11, 9);
+    drawRobotBody(context, robot);
 
     if (robot.shield > 1) {
       context.strokeStyle = robot.palette.glow;
@@ -474,6 +506,70 @@ function drawRobots(
 
     context.restore();
   }
+}
+
+function drawRobotBody(context: CanvasRenderingContext2D, robot: RobotFrame) {
+  context.shadowBlur = robot.alive ? 20 : 0;
+  context.shadowColor = robot.palette.glow;
+  context.fillStyle = robot.palette.body;
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = 4;
+
+  if (robot.classId === "bulwark") {
+    context.beginPath();
+    context.roundRect(-40, -33, 80, 66, 8);
+    context.fill();
+    context.stroke();
+    context.shadowBlur = 0;
+    context.fillStyle = robot.palette.trim;
+    context.fillRect(-18, -30, 26, 60);
+    context.fillStyle = robot.palette.glow;
+    context.fillRect(20, -18, 28, 36);
+    context.fillStyle = "#f9fbff";
+    context.fillRect(-30, -19, 13, 12);
+    context.fillRect(-30, 7, 13, 12);
+    return;
+  }
+
+  if (robot.classId === "trickster") {
+    context.beginPath();
+    context.moveTo(0, -39);
+    context.lineTo(42, 0);
+    context.lineTo(0, 39);
+    context.lineTo(-36, 0);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.shadowBlur = 0;
+    context.fillStyle = robot.palette.trim;
+    context.beginPath();
+    context.arc(0, 0, 18, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = robot.palette.glow;
+    context.fillRect(24, -12, 24, 24);
+    context.fillStyle = "#f9fbff";
+    context.fillRect(-18, -15, 11, 10);
+    context.fillRect(-18, 5, 11, 10);
+    return;
+  }
+
+  context.beginPath();
+  context.moveTo(43, 0);
+  context.lineTo(16, -34);
+  context.lineTo(-34, -28);
+  context.lineTo(-27, 28);
+  context.lineTo(16, 34);
+  context.closePath();
+  context.fill();
+  context.stroke();
+  context.shadowBlur = 0;
+  context.fillStyle = robot.palette.trim;
+  context.fillRect(-8, -27, 28, 54);
+  context.fillStyle = robot.palette.glow;
+  context.fillRect(24, -14, 24, 28);
+  context.fillStyle = "#f9fbff";
+  context.fillRect(-23, -16, 12, 10);
+  context.fillRect(-23, 6, 12, 10);
 }
 
 function drawFloatingActions(
@@ -576,8 +672,8 @@ function drawBotActionPanel(
   drawDice(context, activeRoll, time, {
     x: rect.x + rect.width - 88,
     y: rect.y + 18,
-    width: 58,
-    height: 58,
+    width: 70,
+    height: 70,
   });
 
   context.fillStyle = "#9feee2";
@@ -642,7 +738,7 @@ function drawLoadout(
   accent: string,
   selectedWeapon?: WeaponId
 ) {
-  const iconSize = 58;
+  const iconSize = 72;
   const gap = 12;
   const startX = rect.x + 22;
   let x = startX;

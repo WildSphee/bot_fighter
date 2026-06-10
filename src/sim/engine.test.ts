@@ -87,4 +87,43 @@ describe("simulateFight", () => {
       ).toBe(true);
     }
   });
+
+  it("starts bots in motion and holds the winner result", () => {
+    const config = createDefaultFightConfig("motion-and-hold");
+    const result = simulateFight(config);
+
+    expect(result.frames[0].robots.every((robot) => Math.hypot(robot.velocity.x, robot.velocity.y) > 0)).toBe(true);
+
+    const winnerEvent = result.events.find((event) => event.type === "winner");
+    expect(winnerEvent).toBeDefined();
+    expect(result.duration - (winnerEvent?.time ?? result.duration)).toBeGreaterThanOrEqual(1.9);
+  });
+
+  it("telegraphs railgun before resolving damage", () => {
+    const config = createDefaultFightConfig("railgun-telegraph");
+    config.maxDuration = 3;
+    config.robots = config.robots.map((robot, index) => ({
+      ...robot,
+      arsenal: ["railgun"],
+      weaponDice: [{ id: "railgun", weight: 1 }],
+      movementDice: [{ id: index === 0 ? "hold" : "strafe-right", weight: 1 }],
+    }));
+
+    const result = simulateFight(config);
+    const railgunEvent = result.events.find(
+      (event) => event.type === "weapon" && event.weaponId === "railgun"
+    );
+    const railgunHit = result.events.find(
+      (event) => event.type === "hit" && event.weaponId === "railgun"
+    );
+    const hasTelegraph = result.frames.some((frame) =>
+      frame.effects.some((effect) => effect.type === "telegraph" && effect.weaponId === "railgun")
+    );
+
+    expect(railgunEvent).toBeDefined();
+    expect(hasTelegraph).toBe(true);
+    if (railgunHit && railgunEvent) {
+      expect(railgunHit.time - railgunEvent.time).toBeGreaterThanOrEqual(0.49);
+    }
+  });
 });
