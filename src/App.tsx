@@ -21,15 +21,26 @@ import { createSoundEngine, type SoundEngine } from "./audio/sfx";
 import { recordReel } from "./export/recordReel";
 import { drawFightFrame } from "./render/drawFight";
 import {
+  MOVEMENTS,
   MOVEMENT_PROFILES,
   ROBOT_CLASSES,
   WEAPONS,
+  cloneMovementProfiles,
   createRobotFromClass,
   createDefaultFightConfig,
+  normalizeMovementProfile,
   syncRobotWithClass,
 } from "./sim/catalog";
 import { cloneFightConfig, simulateFight } from "./sim/engine";
-import type { FightConfig, FightResult, MovementProfileId, RobotClass, RobotConfig } from "./sim/types";
+import type {
+  FightConfig,
+  FightResult,
+  MovementId,
+  MovementProfileId,
+  MovementProfileMap,
+  RobotClass,
+  RobotConfig,
+} from "./sim/types";
 
 type Tab = "setup" | "dice" | "movement" | "export" | "history";
 
@@ -43,10 +54,30 @@ type HistoryItem = {
 
 const HISTORY_KEY = "bot-fighter-history";
 const CLASS_PROFILE_KEY = "bot-fighter-class-profiles";
+const MOVEMENT_PROFILE_KEY = "bot-fighter-movement-profiles";
+
+const MOVEMENT_PROFILE_LABELS: Record<MovementProfileId, string> = {
+  balanced: "Balanced",
+  aggressive: "Aggressive",
+  evasive: "Evasive",
+};
+
+const MOVEMENT_LABELS: Record<MovementId, string> = {
+  orbit: "Orbit",
+  boost: "Forward Boost",
+  backstep: "Backstep",
+  "strafe-left": "Strafe Left",
+  "strafe-right": "Strafe Right",
+  hold: "Hold",
+  evade: "Evade",
+};
 
 export default function App() {
   const [seed, setSeed] = useState("bot-fighter-001");
   const [classes, setClasses] = useState<RobotClass[]>(() => readClassProfiles());
+  const [movementProfiles, setMovementProfiles] = useState<MovementProfileMap>(() =>
+    readMovementProfiles()
+  );
   const [robots, setRobots] = useState<RobotConfig[]>(() =>
     cloneFightConfig(createDefaultFightConfig()).robots
   );
@@ -65,8 +96,8 @@ export default function App() {
   const soundEngineRef = useRef<SoundEngine | null>(null);
 
   const syncedRobots = useMemo(
-    () => robots.map((robot, index) => syncRobotWithClass(robot, classes, index)),
-    [classes, robots]
+    () => robots.map((robot, index) => syncRobotWithClass(robot, classes, index, movementProfiles)),
+    [classes, movementProfiles, robots]
   );
 
   const config = useMemo<FightConfig>(
@@ -75,9 +106,10 @@ export default function App() {
       seed,
       maxDuration,
       classes,
+      movementProfiles,
       robots: syncedRobots,
     }),
-    [classes, maxDuration, seed, syncedRobots]
+    [classes, maxDuration, movementProfiles, seed, syncedRobots]
   );
   const result = useMemo(() => simulateFight(config), [config]);
   const frame = result.frames[Math.min(frameIndex, result.frames.length - 1)] ?? result.frames[0];
@@ -155,19 +187,23 @@ export default function App() {
 
   useEffect(() => {
     window.localStorage.setItem(CLASS_PROFILE_KEY, JSON.stringify(classes));
+    window.localStorage.setItem(MOVEMENT_PROFILE_KEY, JSON.stringify(movementProfiles));
     void fetch("http://localhost:8787/api/class-profiles", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classes }),
+      body: JSON.stringify({ classes, movementProfiles }),
     }).catch(() => undefined);
-  }, [classes]);
+  }, [classes, movementProfiles]);
 
   useEffect(() => {
     void fetch("http://localhost:8787/api/class-profiles")
       .then((response) => (response.ok ? response.json() : undefined))
-      .then((payload: { classes?: RobotClass[] } | undefined) => {
+      .then((payload: { classes?: RobotClass[]; movementProfiles?: MovementProfileMap } | undefined) => {
         if (payload?.classes?.length) {
           setClasses(payload.classes);
+        }
+        if (payload?.movementProfiles) {
+          setMovementProfiles(cloneMovementProfiles(payload.movementProfiles));
         }
       })
       .catch(() => undefined);
@@ -193,9 +229,29 @@ export default function App() {
     );
   }
 
+  function updateMovementWeight(
+    profileId: MovementProfileId,
+    movementId: MovementId,
+    weight: number
+  ) {
+    setMovementProfiles((current) => ({
+      ...current,
+      [profileId]: normalizeMovementProfile(current[profileId]).map((die) =>
+        die.id === movementId
+          ? { ...die, weight: Math.max(0, Math.min(10, Math.round(weight))) }
+          : die
+      ),
+    }));
+  }
+
   function addBot() {
     setRobots((current) => {
-      const next = createRobotFromClass(classes[0]?.id ?? ROBOT_CLASSES[0].id, current.length, classes);
+      const next = createRobotFromClass(
+        classes[0]?.id ?? ROBOT_CLASSES[0].id,
+        current.length,
+        classes,
+        movementProfiles
+      );
       return [
         ...current,
         {
@@ -461,6 +517,24 @@ export default function App() {
                       }
                     />
                   </label>
+                  <label className="field">
+                    <span>Movement Profile</span>
+                    <select
+                      value={robotClass.movementProfile}
+                      onChange={(event) =>
+                        updateClass(robotClass.id, (current) => ({
+                          ...current,
+                          movementProfile: event.target.value as MovementProfileId,
+                        }))
+                      }
+                    >
+                      {Object.entries(MOVEMENT_PROFILE_LABELS).map(([profileId, label]) => (
+                        <option key={profileId} value={profileId}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <div className="check-grid">
                     {WEAPONS.map((weapon) => (
                       <label key={weapon.id} className="check-row">
@@ -488,35 +562,63 @@ export default function App() {
 
           {activeTab === "movement" && (
             <div className="panel-stack">
-              {classes.map((robotClass) => (
-                <section className="robot-editor" key={robotClass.id}>
+              {Object.entries(movementProfiles).map(([profileId, dice]) => {
+                const normalizedDice = normalizeMovementProfile(dice);
+                const totalWeight = normalizedDice.reduce((sum, die) => sum + die.weight, 0);
+
+                return (
+                <section className="robot-editor" key={profileId}>
                   <div className="robot-editor__header">
-                    <span style={{ background: robotClass.palette.body }} />
-                    <strong>{robotClass.name}</strong>
+                    <span style={{ background: profileId === "aggressive" ? "#ef4f64" : profileId === "evasive" ? "#2d9cdb" : "#8b5cf6" }} />
+                    <strong>{MOVEMENT_PROFILE_LABELS[profileId as MovementProfileId]}</strong>
                   </div>
-                  <label className="field">
-                    <span>Movement Profile</span>
-                    <select
-                      value={robotClass.movementProfile}
-                      onChange={(event) =>
-                        updateClass(robotClass.id, (current) => ({
-                          ...current,
-                          movementProfile: event.target.value as MovementProfileId,
-                        }))
-                      }
-                    >
-                      <option value="balanced">Balanced</option>
-                      <option value="aggressive">Aggressive</option>
-                      <option value="evasive">Evasive</option>
-                    </select>
-                  </label>
-                  <div className="movement-grid">
-                    {MOVEMENT_PROFILES[robotClass.movementProfile].map((die, index) => (
-                      <span key={`${die.id}-${index}`}>{die.id}</span>
-                    ))}
+                  <div className="movement-weight-list">
+                    {MOVEMENTS.map((movementId) => {
+                      const die = normalizedDice.find((candidate) => candidate.id === movementId) ?? {
+                        id: movementId,
+                        weight: 0,
+                      };
+                      const percentage = totalWeight > 0 ? Math.round((die.weight / totalWeight) * 100) : 0;
+
+                      return (
+                        <label className="movement-weight-row" key={movementId}>
+                          <span>{MOVEMENT_LABELS[movementId]}</span>
+                          <input
+                            type="range"
+                            min={0}
+                            max={10}
+                            step={1}
+                            value={die.weight}
+                            onChange={(event) =>
+                              updateMovementWeight(
+                                profileId as MovementProfileId,
+                                movementId,
+                                Number(event.target.value)
+                              )
+                            }
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            max={10}
+                            value={die.weight}
+                            onChange={(event) =>
+                              updateMovementWeight(
+                                profileId as MovementProfileId,
+                                movementId,
+                                Number(event.target.value)
+                              )
+                            }
+                          />
+                          <strong>{percentage}%</strong>
+                        </label>
+                      );
+                    })}
                   </div>
+                  <p className="muted">Total weight: {totalWeight || 0}</p>
                 </section>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -668,6 +770,22 @@ function readClassProfiles(): RobotClass[] {
       palette: { ...robotClass.palette },
       arsenal: [...robotClass.arsenal],
     }));
+  }
+}
+
+function readMovementProfiles(): MovementProfileMap {
+  try {
+    const raw = window.localStorage.getItem(MOVEMENT_PROFILE_KEY);
+    if (!raw) {
+      return cloneMovementProfiles(MOVEMENT_PROFILES);
+    }
+
+    return cloneMovementProfiles({
+      ...MOVEMENT_PROFILES,
+      ...(JSON.parse(raw) as Partial<MovementProfileMap>),
+    });
+  } catch {
+    return cloneMovementProfiles(MOVEMENT_PROFILES);
   }
 }
 

@@ -3,6 +3,7 @@ import type {
   FightConfig,
   MovementId,
   MovementProfileId,
+  MovementProfileMap,
   RobotClass,
   RobotConfig,
   WeaponDefinition,
@@ -83,31 +84,33 @@ export const MOVEMENT_PROFILES: Record<MovementProfileId, WeightedDie<MovementId
     { id: "evade", weight: 1 },
   ],
   aggressive: [
-    { id: "boost", weight: 1 },
-    { id: "boost", weight: 1 },
-    { id: "orbit", weight: 1 },
+    { id: "orbit", weight: 2 },
+    { id: "boost", weight: 3 },
+    { id: "backstep", weight: 1 },
     { id: "strafe-left", weight: 1 },
     { id: "strafe-right", weight: 1 },
     { id: "hold", weight: 1 },
+    { id: "evade", weight: 1 },
   ],
   evasive: [
-    { id: "backstep", weight: 1 },
-    { id: "backstep", weight: 1 },
-    { id: "evade", weight: 1 },
     { id: "orbit", weight: 1 },
+    { id: "boost", weight: 1 },
+    { id: "backstep", weight: 3 },
     { id: "strafe-left", weight: 1 },
     { id: "strafe-right", weight: 1 },
+    { id: "hold", weight: 1 },
+    { id: "evade", weight: 3 },
   ],
 };
 
-export const MOVEMENT_DICE: WeightedDie<MovementId>[] = [
-  { id: "orbit", weight: 20 },
-  { id: "boost", weight: 18 },
-  { id: "backstep", weight: 13 },
-  { id: "strafe-left", weight: 15 },
-  { id: "strafe-right", weight: 15 },
-  { id: "hold", weight: 7 },
-  { id: "evade", weight: 12 },
+export const MOVEMENTS: MovementId[] = [
+  "orbit",
+  "boost",
+  "backstep",
+  "strafe-left",
+  "strafe-right",
+  "hold",
+  "evade",
 ];
 
 export const WEAPONS: WeaponDefinition[] = [
@@ -221,7 +224,7 @@ export const WEAPONS: WeaponDefinition[] = [
     homing: 0,
     knockback: 88,
     rarity: "rare",
-    sound: "laser",
+    sound: "charge",
   },
 ];
 
@@ -239,6 +242,7 @@ export function createDefaultFightConfig(seed = "bot-fighter-001"): FightConfig 
     previewFps: 30,
     arena: ARENAS[0],
     classes: ROBOT_CLASSES,
+    movementProfiles: cloneMovementProfiles(MOVEMENT_PROFILES),
     robots: DEFAULT_ROBOTS,
   };
 }
@@ -251,8 +255,36 @@ export function getWeapon(weaponId: WeaponId): WeaponDefinition {
   return WEAPONS.find((weapon) => weapon.id === weaponId) ?? WEAPONS[0];
 }
 
-export function createMovementDice(profile: MovementProfileId): WeightedDie<MovementId>[] {
-  return MOVEMENT_PROFILES[profile].map((die) => ({ ...die }));
+export function cloneMovementProfiles(
+  profiles: MovementProfileMap = MOVEMENT_PROFILES
+): MovementProfileMap {
+  return {
+    balanced: normalizeMovementProfile(profiles.balanced),
+    aggressive: normalizeMovementProfile(profiles.aggressive),
+    evasive: normalizeMovementProfile(profiles.evasive),
+  };
+}
+
+export function normalizeMovementProfile(
+  dice: WeightedDie<MovementId>[] = MOVEMENT_PROFILES.balanced
+): WeightedDie<MovementId>[] {
+  return MOVEMENTS.map((movementId) => ({
+    id: movementId,
+    weight: Math.max(
+      0,
+      dice
+        .filter((die) => die.id === movementId)
+        .reduce((sum, die) => sum + Number(die.weight || 0), 0)
+    ),
+  }));
+}
+
+export function createMovementDice(
+  profile: MovementProfileId,
+  profiles: MovementProfileMap = MOVEMENT_PROFILES
+): WeightedDie<MovementId>[] {
+  const dice = normalizeMovementProfile(profiles[profile]).filter((die) => die.weight > 0);
+  return dice.length > 0 ? dice : [{ id: "hold", weight: 1 }];
 }
 
 export function createWeaponDice(arsenal: WeaponId[]): WeightedDie<WeaponId>[] {
@@ -262,7 +294,8 @@ export function createWeaponDice(arsenal: WeaponId[]): WeightedDie<WeaponId>[] {
 export function createRobotFromClass(
   classId: string,
   index: number,
-  classes = ROBOT_CLASSES
+  classes = ROBOT_CLASSES,
+  movementProfiles: MovementProfileMap = MOVEMENT_PROFILES
 ): RobotConfig {
   const robotClass = getClass(classId, classes);
 
@@ -273,7 +306,7 @@ export function createRobotFromClass(
     teamId: `team-${index + 1}`,
     palette: { ...robotClass.palette },
     arsenal: [...robotClass.arsenal],
-    movementDice: createMovementDice(robotClass.movementProfile),
+    movementDice: createMovementDice(robotClass.movementProfile, movementProfiles),
     weaponDice: createWeaponDice(robotClass.arsenal),
   };
 }
@@ -281,7 +314,8 @@ export function createRobotFromClass(
 export function syncRobotWithClass(
   robot: RobotConfig,
   classes = ROBOT_CLASSES,
-  index = 0
+  index = 0,
+  movementProfiles: MovementProfileMap = MOVEMENT_PROFILES
 ): RobotConfig {
   const robotClass = getClass(robot.classId, classes);
 
@@ -291,7 +325,7 @@ export function syncRobotWithClass(
     teamId: robot.teamId || `team-${index + 1}`,
     palette: { ...robotClass.palette },
     arsenal: [...robotClass.arsenal],
-    movementDice: createMovementDice(robotClass.movementProfile),
+    movementDice: createMovementDice(robotClass.movementProfile, movementProfiles),
     weaponDice: createWeaponDice(robotClass.arsenal),
   };
 }

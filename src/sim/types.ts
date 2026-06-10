@@ -40,6 +40,8 @@ export type MovementId =
 
 export type MovementProfileId = "balanced" | "aggressive" | "evasive";
 
+export type MovementProfileMap = Record<MovementProfileId, WeightedDie<MovementId>[]>;
+
 export type WeaponId =
   | "ray"
   | "missile"
@@ -93,6 +95,7 @@ export type FightConfig = {
   previewFps: number;
   arena: ArenaConfig;
   classes: RobotClass[];
+  movementProfiles: MovementProfileMap;
   robots: RobotConfig[];
 };
 
@@ -160,6 +163,7 @@ export type FightFrame = {
 
 export type SoundEventType =
   | "boost"
+  | "charge"
   | "laser"
   | "railgun"
   | "missile"

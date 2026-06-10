@@ -222,8 +222,11 @@ function drawArena(
   gradient.addColorStop(0, "#132631");
   gradient.addColorStop(0.55, "#251a34");
   gradient.addColorStop(1, "#342624");
+  context.save();
+  context.globalAlpha = 0.72;
   context.fillStyle = gradient;
   context.fillRect(rect.x, rect.y, rect.width, rect.height);
+  context.restore();
 
   context.save();
   context.globalAlpha = 0.28;

@@ -44,6 +44,11 @@ function playSound(
       noiseBurst(context, output, when, 0.18, 520, 0.08);
       tone(context, output, when, 0.16, 110, 72, "sawtooth", 0.08);
       break;
+    case "charge":
+      tone(context, output, when, 0.5, 180, 920, "sine", 0.06);
+      tone(context, output, when + 0.2, 0.42, 320, 1380, "triangle", 0.05);
+      noiseBurst(context, output, when + 0.1, 0.55, 1800, 0.035);
+      break;
     case "laser":
       tone(context, output, when, 0.13, 920, 180, "square", 0.11);
       break;

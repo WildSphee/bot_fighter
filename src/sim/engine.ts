@@ -1,5 +1,4 @@
-import { getClass, getWeapon } from "./catalog";
-import { createMovementDice, createWeaponDice } from "./catalog";
+import { createMovementDice, createWeaponDice, getClass, getWeapon } from "./catalog";
 import { createRng, weightedRoll } from "./random";
 import type {
   EffectFrame,
@@ -229,7 +228,7 @@ function createInitialRobots(config: FightConfig): RobotState[] {
       name: robotClass.name,
       palette: { ...robotClass.palette },
       arsenal: [...robotClass.arsenal],
-      movementDice: createMovementDice(robotClass.movementProfile),
+      movementDice: createMovementDice(robotClass.movementProfile, config.movementProfiles),
       weaponDice: createWeaponDice(robotClass.arsenal),
       position,
       velocity: mul(initialDirection, robotClass.speed * 0.42),
@@ -969,6 +968,11 @@ export function cloneFightConfig(config: FightConfig): FightConfig {
       palette: { ...robotClass.palette },
       arsenal: [...robotClass.arsenal],
     })),
+    movementProfiles: {
+      balanced: config.movementProfiles.balanced.map((die) => ({ ...die })),
+      aggressive: config.movementProfiles.aggressive.map((die) => ({ ...die })),
+      evasive: config.movementProfiles.evasive.map((die) => ({ ...die })),
+    },
     robots: config.robots.map((robot: RobotConfig) => ({
       ...robot,
       palette: { ...robot.palette },
