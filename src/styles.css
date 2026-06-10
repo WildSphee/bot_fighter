@@ -591,4 +591,13 @@ button:disabled {
   .two-col {
     grid-template-columns: 1fr;
   }
+
+  .movement-weight-row {
+    grid-template-columns: 1fr 58px 44px;
+  }
+
+  .movement-weight-row input[type="range"] {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }

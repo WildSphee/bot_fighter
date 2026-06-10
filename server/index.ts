@@ -1,12 +1,20 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { URL } from "node:url";
-import { ARENAS, ROBOT_CLASSES, WEAPONS, createDefaultFightConfig, syncRobotWithClass } from "../src/sim/catalog";
+import {
+  ARENAS,
+  ROBOT_CLASSES,
+  WEAPONS,
+  cloneMovementProfiles,
+  createDefaultFightConfig,
+  syncRobotWithClass,
+} from "../src/sim/catalog";
 import { simulateFight } from "../src/sim/engine";
-import type { FightConfig, FightResult, RobotClass } from "../src/sim/types";
+import type { FightConfig, FightResult, MovementProfileMap, RobotClass } from "../src/sim/types";
 
 const PORT = Number(process.env.API_PORT ?? 8787);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
 let classProfiles = cloneClassProfiles(ROBOT_CLASSES);
+let movementProfiles = cloneMovementProfiles();
 
 const server = createServer(async (request, response) => {
   setCorsHeaders(response);
@@ -34,6 +42,7 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, {
         arenas: ARENAS,
         robotClasses: classProfiles,
+        movementProfiles,
         weapons: WEAPONS,
         defaultConfig: withClassProfiles(createDefaultFightConfig(url.searchParams.get("seed") ?? undefined)),
       });
@@ -46,19 +55,29 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/class-profiles") {
-      sendJson(response, 200, { classes: classProfiles });
+      sendJson(response, 200, { classes: classProfiles, movementProfiles });
       return;
     }
 
     if (request.method === "PUT" && url.pathname === "/api/class-profiles") {
-      const body = await readJson<{ classes?: RobotClass[] }>(request);
-      if (!body.classes?.length) {
+      const body = await readJson<{ classes?: RobotClass[]; movementProfiles?: MovementProfileMap }>(request);
+      if (body.classes && !body.classes.length) {
         sendJson(response, 400, { error: "classes must be a non-empty array" });
         return;
       }
+      if (!body.classes && !body.movementProfiles) {
+        sendJson(response, 400, { error: "classes or movementProfiles must be provided" });
+        return;
+      }
 
-      classProfiles = cloneClassProfiles(body.classes);
-      sendJson(response, 200, { classes: classProfiles });
+      if (body.classes) {
+        classProfiles = cloneClassProfiles(body.classes);
+      }
+      if (body.movementProfiles) {
+        movementProfiles = cloneMovementProfiles(body.movementProfiles);
+      }
+
+      sendJson(response, 200, { classes: classProfiles, movementProfiles });
       return;
     }
 
@@ -94,7 +113,7 @@ server.listen(PORT, HOST, () => {
 
 function setCorsHeaders(response: ServerResponse) {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
@@ -135,7 +154,10 @@ function withClassProfiles(config: FightConfig): FightConfig {
   return {
     ...config,
     classes: cloneClassProfiles(classProfiles),
-    robots: config.robots.map((robot, index) => syncRobotWithClass(robot, classProfiles, index)),
+    movementProfiles: cloneMovementProfiles(movementProfiles),
+    robots: config.robots.map((robot, index) =>
+      syncRobotWithClass(robot, classProfiles, index, movementProfiles)
+    ),
   };
 }
 
