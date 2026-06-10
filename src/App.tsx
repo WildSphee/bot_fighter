@@ -660,7 +660,7 @@ export default function App() {
                       />
                     </label>
                     <label className="field">
-                      <span>Impact Damage</span>
+                      <span>Impact Damage Taken</span>
                       <input
                         type="number"
                         min={0}
