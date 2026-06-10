@@ -44,6 +44,14 @@ type ProjectileState = ProjectileFrame & {
   acceleration: number;
   explosive: boolean;
   explosionRadius: number;
+  ellipse?: {
+    origin: Vec2;
+    axis: Vec2; // unit vector along the aim direction (major axis)
+    side: Vec2; // unit perpendicular (minor axis), already signed by spin
+    major: number;
+    minor: number;
+    omega: number;
+  };
 };
 
 type PendingStrike = {
@@ -57,12 +65,28 @@ type PendingStrike = {
   resolvesAt: number;
 };
 
+type MineState = {
+  id: string;
+  ownerId: string;
+  origin: Vec2;
+  position: Vec2;
+  damage: number;
+  explosionRadius: number;
+  triggerRadius: number;
+  knockback: number;
+  thrownAt: number;
+  landAt: number;
+  armAt: number;
+  expiresAt: number;
+};
+
 const ROBOT_RADIUS = 36;
 const WINNER_SCREEN_SECONDS = 2;
 const RAILGUN_BEAM_LENGTH = 2600;
 const ROCKET_ACCELERATION = 3.1;
 const ROCKET_MAX_SPEED = 1500;
 const COLLISION_DAMAGE_COOLDOWN = 0.45;
+const KNOCKBACK_MULTIPLIER = 2.1;
 
 export function simulateFight(config: FightConfig): FightResult {
   const rng = createRng(`${config.seed}:${config.robots.map((robot) => robot.id).join("|")}`);
@@ -70,6 +94,7 @@ export function simulateFight(config: FightConfig): FightResult {
   const robots = createInitialRobots(config);
   const projectiles: ProjectileState[] = [];
   const pendingStrikes: PendingStrike[] = [];
+  const mines: MineState[] = [];
   const effects: EffectFrame[] = [];
   const frames: FightFrame[] = [];
   const events: FightEvent[] = [];
@@ -102,7 +127,7 @@ export function simulateFight(config: FightConfig): FightResult {
 
     if (deathTime !== undefined && time >= deathTime + WINNER_SCREEN_SECONDS) {
       pruneEffects(effects, deathTime + (time - deathTime) * 0.5);
-      captureFrame(time, robots, projectiles, effects, pendingStrikes, frames);
+      captureFrame(time, robots, projectiles, effects, pendingStrikes, mines, frames);
       break;
     }
 
@@ -144,7 +169,7 @@ export function simulateFight(config: FightConfig): FightResult {
           const weapon = getWeaponFrom(weapons, weaponId);
 
           if ((robot.cooldowns[weaponId] ?? 0) <= time) {
-            fireWeapon({
+            const fired = fireWeapon({
               weapon,
               attacker: robot,
               target,
@@ -154,14 +179,21 @@ export function simulateFight(config: FightConfig): FightResult {
               rngNext: rng.next,
               projectiles,
               pendingStrikes,
+              mines,
+              arena: config.arena,
               effects,
               events,
               robots,
               damageByRobot,
             });
-            robot.lastWeapon = weaponId;
-            robot.cooldowns[weaponId] = time + weapon.cooldown;
-            robot.nextWeaponAt = time + 0.7 + rng.next() * 0.8;
+            if (fired) {
+              robot.lastWeapon = weaponId;
+              robot.cooldowns[weaponId] = time + weapon.cooldown;
+              robot.nextWeaponAt = time + 0.7 + rng.next() * 0.8;
+            } else {
+              // Out of range / couldn't fire: retry shortly without burning cooldown.
+              robot.nextWeaponAt = time + 0.25;
+            }
           } else {
             robot.nextWeaponAt = time + 0.25;
           }
@@ -175,6 +207,7 @@ export function simulateFight(config: FightConfig): FightResult {
       resolveRobotCollisions(robots, effects, events, damageByRobot, time);
       updatePendingStrikes(pendingStrikes, robots, effects, events, damageByRobot, time);
       updateProjectiles(projectiles, robots, config.arena, effects, events, damageByRobot, time, tickStep);
+      updateMines(mines, robots, effects, events, damageByRobot, time);
       rechargeShields(robots, tickStep);
       pruneEffects(effects, time);
     } else {
@@ -188,7 +221,7 @@ export function simulateFight(config: FightConfig): FightResult {
     }
 
     if (time + 0.0001 >= nextFrameAt) {
-      captureFrame(time, robots, projectiles, effects, pendingStrikes, frames);
+      captureFrame(time, robots, projectiles, effects, pendingStrikes, mines, frames);
       nextFrameAt += frameStep;
     }
   }
@@ -200,7 +233,7 @@ export function simulateFight(config: FightConfig): FightResult {
     events.push({ type: "winner", time, winnerId, reason: winnerReason, sound: "winner" });
     for (let holdTime = time; holdTime <= time + WINNER_SCREEN_SECONDS + 0.0001; holdTime += frameStep) {
       pruneEffects(effects, holdTime);
-      captureFrame(Number(holdTime.toFixed(4)), robots, projectiles, effects, pendingStrikes, frames);
+      captureFrame(Number(holdTime.toFixed(4)), robots, projectiles, effects, pendingStrikes, mines, frames);
     }
   }
 
@@ -379,7 +412,7 @@ function resolveRobotCollisions(
       const impactSpeed = relativeVelocity.x * normal.x + relativeVelocity.y * normal.y;
 
       if (impactSpeed < 0) {
-        const impulse = (-(1.35) * impactSpeed) / (1 / leftClass.mass + 1 / rightClass.mass);
+        const impulse = (-(2.2) * impactSpeed) / (1 / leftClass.mass + 1 / rightClass.mass);
         left.velocity = add(left.velocity, mul(normal, -impulse / leftClass.mass));
         right.velocity = add(right.velocity, mul(normal, impulse / rightClass.mass));
 
@@ -398,8 +431,8 @@ function resolveRobotCollisions(
           right.lastCollisionAt = time;
         }
       } else {
-        left.velocity = add(left.velocity, mul(normal, -18 / leftClass.mass));
-        right.velocity = add(right.velocity, mul(normal, 18 / rightClass.mass));
+        left.velocity = add(left.velocity, mul(normal, -34 / leftClass.mass));
+        right.velocity = add(right.velocity, mul(normal, 34 / rightClass.mass));
       }
     }
   }
@@ -448,11 +481,13 @@ function fireWeapon(input: {
   rngNext: () => number;
   projectiles: ProjectileState[];
   pendingStrikes: PendingStrike[];
+  mines: MineState[];
+  arena: FightConfig["arena"];
   effects: EffectFrame[];
   events: FightEvent[];
   robots: RobotState[];
   damageByRobot: Record<string, number>;
-}) {
+}): boolean {
   const {
     weapon,
     attacker,
@@ -470,7 +505,7 @@ function fireWeapon(input: {
   const targetDistance = distance(attacker.position, target.position);
 
   if (weapon.kind !== "defense" && targetDistance > weapon.range) {
-    return;
+    return false;
   }
 
   // Weapons fire along the bot's current facing, not straight at the target,
@@ -500,7 +535,7 @@ function fireWeapon(input: {
         weaponId: weapon.id,
       })
     );
-    return;
+    return true;
   }
 
   if (weapon.id === "rocket") {
@@ -528,14 +563,57 @@ function fireWeapon(input: {
         weaponId: weapon.id,
       })
     );
-    return;
+    return true;
+  }
+
+  if (weapon.id === "boomerang") {
+    // Fixed elliptical path: a big stretched loop elongated along the aim
+    // direction. Traced parametrically so it closes back on the launch point.
+    const spin = rngNext() > 0.5 ? 1 : -1;
+    const period = 1.6;
+    const major = 250; // forward reach (along aim)
+    const minor = 130; // side width (perpendicular)
+    const omega = (Math.PI * 2) / period;
+    const start = add(attacker.position, mul(direction, ROBOT_RADIUS));
+    projectiles.push({
+      id: `boomerang-${attacker.id}-${time.toFixed(2)}`,
+      ownerId: attacker.id,
+      targetId: target.id,
+      weaponId: weapon.id,
+      position: { ...start },
+      velocity: mul(direction, weapon.projectileSpeed),
+      damage: weapon.damage,
+      radius: weapon.radius,
+      homing: 0,
+      knockback: weapon.knockback,
+      curve: 0,
+      lastTrailAt: time,
+      age: 0,
+      expiresAt: time + period,
+      acceleration: 0,
+      explosive: false,
+      explosionRadius: 0,
+      ellipse: {
+        origin: start,
+        axis: { ...direction },
+        side: rotate90(direction, spin),
+        major,
+        minor,
+        omega,
+      },
+    });
+    effects.push(
+      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), weapon.radius + 24, time, "#d7f8ff", {
+        weaponId: weapon.id,
+      })
+    );
+    return true;
   }
 
   if (weapon.kind === "projectile") {
     const arcSign = rngNext() > 0.5 ? 1 : -1;
     const side = rotate90(direction, arcSign);
-    const arcStrength =
-      weapon.id === "missile" ? 170 + rngNext() * 120 : weapon.id === "boomerang" ? 105 : 45;
+    const arcStrength = weapon.id === "missile" ? 170 + rngNext() * 120 : 45;
     const speed = weapon.projectileSpeed * (weapon.id === "missile" ? 1.08 : 1);
     projectiles.push({
       id: `${weapon.id}-${attacker.id}-${time.toFixed(2)}`,
@@ -548,7 +626,7 @@ function fireWeapon(input: {
       radius: weapon.radius,
       homing: weapon.homing,
       knockback: weapon.knockback,
-      curve: arcSign * (weapon.id === "missile" ? 235 : weapon.id === "boomerang" ? -155 : 65),
+      curve: arcSign * (weapon.id === "missile" ? 235 : 65),
       lastTrailAt: time,
       age: 0,
       expiresAt: time + (weapon.id === "missile" ? 3 : 4.2),
@@ -561,7 +639,7 @@ function fireWeapon(input: {
         weaponId: weapon.id,
       })
     );
-    return;
+    return true;
   }
 
   if (weapon.id === "shotgun") {
@@ -594,26 +672,34 @@ function fireWeapon(input: {
         weaponId: weapon.id,
       })
     );
-    return;
+    return true;
   }
 
   if (weapon.kind === "field") {
-    effects.push(
-      createEffect("mine", add(attacker.position, mul(direction, -24)), weapon.radius + 28, time, "#f6c85f", {
-        weaponId: weapon.id,
-      })
+    // Toss the mine onto the ground a short distance ahead of the bot (in its
+    // facing direction), then it arms over 1.5s before it can detonate.
+    const tossDistance = 80 + rngNext() * 50;
+    const landing = clampToArena(
+      add(attacker.position, mul(direction, tossDistance)),
+      input.arena,
+      weapon.radius
     );
-    effects.push(
-      createEffect("explosion", attacker.position, weapon.radius + 52, time + 0.1, "#ff8f4f", {
-        weaponId: weapon.id,
-      })
-    );
-    for (const robot of input.robots) {
-      if (robot.id !== attacker.id && robot.alive && distance(robot.position, attacker.position) < weapon.radius + 70) {
-        applyDamage(attacker, robot, weapon, time, events, damageByRobot, effects);
-      }
-    }
-    return;
+    const landAt = time + 0.4;
+    input.mines.push({
+      id: `mine-${attacker.id}-${time.toFixed(2)}`,
+      ownerId: attacker.id,
+      origin: { ...attacker.position },
+      position: landing,
+      damage: weapon.damage,
+      explosionRadius: weapon.radius + 70,
+      triggerRadius: weapon.radius + 24,
+      knockback: weapon.knockback,
+      thrownAt: time,
+      landAt,
+      armAt: landAt + 1.5,
+      expiresAt: landAt + 1.5 + 14,
+    });
+    return true;
   }
 
   if (weapon.id === "railgun") {
@@ -627,7 +713,7 @@ function fireWeapon(input: {
       lockedAt: time + 1,
       resolvesAt: time + 1.3,
     });
-    return;
+    return true;
   }
 
   if (weapon.id === "emp") {
@@ -649,7 +735,7 @@ function fireWeapon(input: {
         );
       }
     }
-    return;
+    return true;
   }
 
   // Instant beam weapons (ray, etc.) fire straight along the bot's facing.
@@ -679,6 +765,8 @@ function fireWeapon(input: {
       })
     );
   }
+
+  return true;
 }
 
 function updateProjectiles(
@@ -706,21 +794,38 @@ function updateProjectiles(
       }
     }
 
-    if (projectile.curve !== 0 && projectile.age < 1.15) {
-      const side = rotate90(normalize(projectile.velocity), projectile.curve > 0 ? 1 : -1);
-      projectile.velocity = add(
-        projectile.velocity,
-        mul(side, Math.abs(projectile.curve) * dt * (1 - projectile.age / 1.15))
-      );
-    }
+    if (projectile.ellipse) {
+      // Follow a fixed stretched-circle path parametrically (boomerang).
+      const e = projectile.ellipse;
+      const theta = projectile.age * e.omega;
+      const reach = e.major * (1 - Math.cos(theta));
+      const swing = e.minor * Math.sin(theta);
+      projectile.position = {
+        x: e.origin.x + e.axis.x * reach + e.side.x * swing,
+        y: e.origin.y + e.axis.y * reach + e.side.y * swing,
+      };
+      // Velocity (tangent) drives the rendered facing of the blade.
+      projectile.velocity = {
+        x: (e.axis.x * e.major * Math.sin(theta) + e.side.x * e.minor * Math.cos(theta)) * e.omega,
+        y: (e.axis.y * e.major * Math.sin(theta) + e.side.y * e.minor * Math.cos(theta)) * e.omega,
+      };
+    } else {
+      if (projectile.curve !== 0 && projectile.age < 1.15) {
+        const side = rotate90(normalize(projectile.velocity), projectile.curve > 0 ? 1 : -1);
+        projectile.velocity = add(
+          projectile.velocity,
+          mul(side, Math.abs(projectile.curve) * dt * (1 - projectile.age / 1.15))
+        );
+      }
 
-    if (target?.alive && projectile.homing > 0) {
-      const desired = normalize(sub(target.position, projectile.position));
-      projectile.velocity = normalize(add(projectile.velocity, mul(desired, projectile.homing * 720)));
-      projectile.velocity = mul(projectile.velocity, getWeapon(projectile.weaponId).projectileSpeed);
-    }
+      if (target?.alive && projectile.homing > 0) {
+        const desired = normalize(sub(target.position, projectile.position));
+        projectile.velocity = normalize(add(projectile.velocity, mul(desired, projectile.homing * 720)));
+        projectile.velocity = mul(projectile.velocity, getWeapon(projectile.weaponId).projectileSpeed);
+      }
 
-    projectile.position = add(projectile.position, mul(projectile.velocity, dt));
+      projectile.position = add(projectile.position, mul(projectile.velocity, dt));
+    }
 
     if (time - projectile.lastTrailAt >= 0.045) {
       projectile.lastTrailAt = time;
@@ -826,6 +931,72 @@ function detonateRocket(
   }
 }
 
+function updateMines(
+  mines: MineState[],
+  robots: RobotState[],
+  effects: EffectFrame[],
+  events: FightEvent[],
+  damageByRobot: Record<string, number>,
+  time: number
+) {
+  for (let index = mines.length - 1; index >= 0; index -= 1) {
+    const mine = mines[index];
+    const armed = time >= mine.armAt;
+
+    let detonate = time >= mine.expiresAt;
+
+    if (armed && !detonate) {
+      detonate = robots.some(
+        (robot) =>
+          robot.alive &&
+          robot.id !== mine.ownerId &&
+          distance(robot.position, mine.position) <= mine.triggerRadius + ROBOT_RADIUS
+      );
+    }
+
+    if (!detonate) {
+      continue;
+    }
+
+    const owner = robots.find((robot) => robot.id === mine.ownerId);
+    effects.push(
+      createEffect("explosion", mine.position, mine.explosionRadius + 30, time, "#ff8f4f", {
+        weaponId: "mine",
+      })
+    );
+    events.push({ type: "sound", time, sound: "explosion" });
+    addDamageBits(effects, mine.position, { x: 0, y: -1 }, { body: "#f6c85f", trim: "#ff8f4f", glow: "#ffffff" }, time, "mine", 16);
+
+    if (owner) {
+      for (const robot of robots) {
+        if (!robot.alive || robot.id === mine.ownerId) {
+          continue;
+        }
+        const gap = distance(robot.position, mine.position);
+        if (gap > mine.explosionRadius) {
+          continue;
+        }
+        const falloff = Math.max(0.45, 1 - gap / mine.explosionRadius);
+        const splashWeapon = {
+          ...getWeapon("mine"),
+          damage: mine.damage * falloff,
+          knockback: mine.knockback * falloff,
+        };
+        applyDamage(owner, robot, splashWeapon, time, events, damageByRobot, effects);
+      }
+    }
+
+    mines.splice(index, 1);
+  }
+}
+
+function clampToArena(point: Vec2, arena: FightConfig["arena"], margin: number): Vec2 {
+  return {
+    x: clamp(point.x, margin, arena.width - margin),
+    y: clamp(point.y, margin, arena.height - margin),
+  };
+}
+
 function updateProjectileVisuals(
   projectiles: ProjectileState[],
   effects: EffectFrame[],
@@ -875,7 +1046,7 @@ function applyDamage(
   damageByRobot[attacker.id] += damage;
 
   const direction = normalize(sub(target.position, attacker.position));
-  target.velocity = add(target.velocity, mul(direction, weapon.knockback / targetClass.mass));
+  target.velocity = add(target.velocity, mul(direction, (weapon.knockback * KNOCKBACK_MULTIPLIER) / targetClass.mass));
 
   events.push({
     type: "hit",
@@ -1097,6 +1268,7 @@ function captureFrame(
   projectiles: ProjectileState[],
   effects: EffectFrame[],
   pendingStrikes: PendingStrike[],
+  mines: MineState[],
   frames: FightFrame[]
 ) {
   const frameEffects = [
@@ -1125,6 +1297,33 @@ function captureFrame(
         };
       })
       .filter((effect): effect is EffectFrame => effect !== undefined),
+    ...mines.map((mine): EffectFrame => {
+      // During the toss the mine slides from the bot to its landing spot;
+      // after that it sits and arms. variant encodes the phase for the
+      // renderer: 0 = in-flight, 1 = arming, 2 = armed.
+      const flightT = clamp((time - mine.thrownAt) / Math.max(0.001, mine.landAt - mine.thrownAt), 0, 1);
+      const flying = time < mine.landAt;
+      const armed = time >= mine.armAt;
+      const position = flying
+        ? {
+            x: mine.origin.x + (mine.position.x - mine.origin.x) * flightT,
+            y: mine.origin.y + (mine.position.y - mine.origin.y) * flightT,
+          }
+        : mine.position;
+
+      return {
+        id: `${mine.id}-fx-${time}`,
+        type: "mine",
+        position: { ...position },
+        weaponId: "mine",
+        radius: mine.triggerRadius,
+        age: time - mine.thrownAt,
+        duration: mine.expiresAt - mine.thrownAt,
+        color: armed ? "#ff8f4f" : "#f6c85f",
+        variant: flying ? 0 : armed ? 2 : 1,
+        spin: mine.armAt - time, // seconds until armed (negative once armed)
+      };
+    }),
   ];
 
   frames.push({

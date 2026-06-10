@@ -1,6 +1,7 @@
 import { ROBOT_CLASSES, WEAPONS } from "../sim/catalog";
 import type {
   ArenaConfig,
+  EffectFrame,
   FightEvent,
   FightFrame,
   FightResult,
@@ -295,6 +296,11 @@ function drawEffects(
       continue;
     }
 
+    if (effect.type === "mine") {
+      drawThrownMine(context, effect, position, layout.arena.width / arena.width);
+      continue;
+    }
+
     context.save();
     context.globalAlpha = alpha * (effect.type === "muzzle" || effect.type === "spark" ? 0.95 : 0.75);
     context.strokeStyle = effect.color;
@@ -304,7 +310,7 @@ function drawEffects(
 
     if (effect.type === "bit") {
       drawDebrisBit(context, position, radius, effect.age, effect.spin ?? 1, effect.variant ?? 0);
-    } else if (effect.type === "shield" || effect.type === "emp" || effect.type === "mine") {
+    } else if (effect.type === "shield" || effect.type === "emp") {
       context.beginPath();
       context.arc(position.x, position.y, radius, 0, Math.PI * 2);
       context.stroke();
@@ -363,6 +369,90 @@ function drawRailgunOverlay(
     } else {
       drawBeamEffect(context, effect, start, end, alpha);
     }
+  }
+
+  context.restore();
+}
+
+function drawThrownMine(
+  context: CanvasRenderingContext2D,
+  effect: EffectFrame,
+  position: Vec2,
+  scale: number
+) {
+  const variant = effect.variant ?? 0;
+  const flying = variant === 0;
+  const arming = variant === 1;
+  const armed = variant === 2;
+  const secondsToArm = effect.spin ?? 0;
+  const bodyRadius = 13;
+
+  context.save();
+  context.translate(position.x, position.y);
+
+  if (armed) {
+    // Pulsing trigger radius so you can see its live blast zone.
+    const triggerRadius = effect.radius * scale;
+    const pulse = 0.5 + 0.5 * Math.sin(effect.age * 6);
+    context.globalAlpha = 0.18 + pulse * 0.22;
+    context.fillStyle = "#ff8f4f";
+    context.beginPath();
+    context.arc(0, 0, triggerRadius, 0, Math.PI * 2);
+    context.fill();
+    context.globalAlpha = 0.5 + pulse * 0.4;
+    context.strokeStyle = "#ff8f4f";
+    context.lineWidth = 2;
+    context.stroke();
+  }
+
+  context.globalAlpha = 1;
+
+  // Spikes radiating from the casing.
+  context.strokeStyle = armed ? "#ff8f4f" : "#caa64a";
+  context.lineWidth = 3;
+  const spikes = 8;
+  for (let index = 0; index < spikes; index += 1) {
+    const angle = (Math.PI * 2 * index) / spikes + (flying ? effect.age * 9 : 0);
+    context.beginPath();
+    context.moveTo(Math.cos(angle) * bodyRadius, Math.sin(angle) * bodyRadius);
+    context.lineTo(Math.cos(angle) * (bodyRadius + 7), Math.sin(angle) * (bodyRadius + 7));
+    context.stroke();
+  }
+
+  // Casing.
+  context.shadowBlur = armed ? 14 : 6;
+  context.shadowColor = armed ? "#ff6a3d" : "#000000";
+  context.fillStyle = "#3a3326";
+  context.strokeStyle = "#1d1a14";
+  context.lineWidth = 3;
+  context.beginPath();
+  context.arc(0, 0, bodyRadius, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+  context.shadowBlur = 0;
+
+  // Status light: blinks faster as it nears arming, solid red once armed.
+  let lightOn = true;
+  let lightColor = "#ffdd78";
+  if (armed) {
+    lightColor = "#ff5a3c";
+    lightOn = true;
+  } else if (arming) {
+    const blinkRate = 3 + Math.max(0, 1.5 - secondsToArm) * 9;
+    lightOn = Math.sin(effect.age * blinkRate * Math.PI) > 0;
+    lightColor = "#ffd166";
+  } else {
+    lightColor = "#9feee2";
+  }
+
+  if (lightOn) {
+    context.fillStyle = lightColor;
+    context.shadowBlur = 10;
+    context.shadowColor = lightColor;
+    context.beginPath();
+    context.arc(0, 0, 5, 0, Math.PI * 2);
+    context.fill();
+    context.shadowBlur = 0;
   }
 
   context.restore();
