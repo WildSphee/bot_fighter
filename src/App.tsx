@@ -692,20 +692,35 @@ export default function App() {
                       />
                     </label>
                     <label className="field">
-                      <span>Rotation Speed</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={robotClass.rotationSpeed}
-                        onChange={(event) =>
-                          updateClass(robotClass.id, (current) => ({
-                            ...current,
-                            rotationSpeed: Number(event.target.value),
-                          }))
-                        }
-                      />
+                      <span>Rotation Speed · {robotClass.rotationSpeed.toFixed(2)}x</span>
+                      <div className="input-action">
+                        <input
+                          type="range"
+                          min={0}
+                          max={3}
+                          step={0.05}
+                          value={robotClass.rotationSpeed}
+                          onChange={(event) =>
+                            updateClass(robotClass.id, (current) => ({
+                              ...current,
+                              rotationSpeed: Number(event.target.value),
+                            }))
+                          }
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={3}
+                          step={0.01}
+                          value={robotClass.rotationSpeed}
+                          onChange={(event) =>
+                            updateClass(robotClass.id, (current) => ({
+                              ...current,
+                              rotationSpeed: Number(event.target.value),
+                            }))
+                          }
+                        />
+                      </div>
                     </label>
                   </div>
                   <div className="two-col">
