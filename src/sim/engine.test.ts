@@ -171,7 +171,7 @@ describe("simulateFight", () => {
       const shooter = frameAfterRecoil?.robots.find((robot) => robot.id === config.robots[0].id);
 
       expect(recoilEvent, `${weaponId} should fire`).toBeDefined();
-      expect(Math.hypot(shooter?.velocity.x ?? 0, shooter?.velocity.y ?? 0), `${weaponId} should recoil`).toBeGreaterThan(20);
+      expect(Math.hypot(shooter?.velocity.x ?? 0, shooter?.velocity.y ?? 0), `${weaponId} should recoil lightly`).toBeGreaterThan(4);
     }
   });
 
@@ -281,10 +281,18 @@ describe("simulateFight", () => {
     const config = createDefaultFightConfig("shotgun-penetrates");
     config.maxDuration = 1.4;
     config.centerGravity = 0;
+    config.arena = {
+      ...config.arena,
+      width: 520,
+      height: 520,
+      drag: 1,
+    };
     config.classes = config.classes.map((robotClass) => ({
       ...robotClass,
       speed: 0,
       turnSpeed: 100,
+      hp: 500,
+      shield: 0,
       arsenal: ["shotgun"],
       movementProfile: "balanced",
     }));
@@ -316,7 +324,7 @@ describe("simulateFight", () => {
     expect(projectileAfterHit).toBe(true);
   });
 
-  it("fires three slow inaccurate blast rifle shots", () => {
+  it("fires four faster blast rifle shots", () => {
     const config = createDefaultFightConfig("blast-rifle-burst");
     config.maxDuration = 1.2;
     config.centerGravity = 0;
@@ -338,12 +346,14 @@ describe("simulateFight", () => {
       for (const projectile of frame.projectiles) {
         if (projectile.weaponId === "blast-rifle") {
           blastProjectiles.add(projectile.id);
-          expect(Math.hypot(projectile.velocity.x, projectile.velocity.y)).toBeLessThan(340);
+          const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
+          expect(speed).toBeGreaterThan(760);
+          expect(speed).toBeLessThan(840);
         }
       }
     }
 
-    expect(blastProjectiles.size).toBeGreaterThanOrEqual(3);
+    expect(blastProjectiles.size).toBeGreaterThanOrEqual(4);
   });
 
   it("lets the neon blade destroy projectiles during its swing", () => {

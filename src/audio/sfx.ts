@@ -89,9 +89,9 @@ function playSound(
       break;
 
     case "blast-rifle":
-      // Three-shot laser rifle burst: slow heavy bolts with unstable EDM bite.
-      for (let index = 0; index < 3; index += 1) {
-        const shotAt = when + index * 0.12;
+      // Four-shot laser rifle burst: fast heavy bolts with unstable EDM bite.
+      for (let index = 0; index < 4; index += 1) {
+        const shotAt = when + index * 0.04;
         noiseBurst(context, output, shotAt, 0.026, 7600, 0.15);
         tone(context, output, shotAt, 0.09, 2100, 540, "square", 0.075);
         tone(context, output, shotAt + 0.018, 0.12, 920, 220, "sawtooth", 0.06);

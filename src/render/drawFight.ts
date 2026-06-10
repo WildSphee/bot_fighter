@@ -497,10 +497,10 @@ function drawBladeEffect(
   context.lineCap = "round";
   context.lineJoin = "round";
   context.shadowBlur = holding ? 18 : 30;
-  context.shadowColor = "#ff2f55";
+  context.shadowColor = "#ff0055";
 
   if (holding) {
-    context.strokeStyle = "#ff2f55";
+    context.strokeStyle = "#ff0055";
     context.lineWidth = 12;
     context.beginPath();
     context.moveTo(28, 0);
@@ -513,7 +513,7 @@ function drawBladeEffect(
     context.lineTo(radius * 0.88, 0);
     context.stroke();
   } else {
-    context.strokeStyle = "rgba(255, 47, 85, 0.72)";
+    context.strokeStyle = "rgba(255, 0, 85, 0.82)";
     context.lineWidth = 28;
     context.beginPath();
     context.arc(0, 0, radius * 0.78, -1.65, 0.25);
@@ -523,7 +523,7 @@ function drawBladeEffect(
     context.beginPath();
     context.arc(0, 0, radius * 0.78, -1.42, 0.1);
     context.stroke();
-    context.strokeStyle = "#ff2f55";
+    context.strokeStyle = "#ff0055";
     context.lineWidth = 9;
     context.beginPath();
     context.moveTo(24, 0);
@@ -732,8 +732,8 @@ function drawProjectiles(
       context.stroke();
     } else if (projectile.weaponId === "blast-rifle") {
       context.shadowBlur = 16;
-      context.shadowColor = "#ff4f7d";
-      context.fillStyle = "#ff4f7d";
+      context.shadowColor = "#ff2b72";
+      context.fillStyle = "#ff2b72";
       context.strokeStyle = "#ffffff";
       context.lineWidth = 2;
       context.beginPath();
@@ -1214,9 +1214,9 @@ function projectileColor(weaponId: WeaponId): string {
     case "boomerang":
       return "#d7f8ff";
     case "blade":
-      return "#ff2f55";
+      return "#ff0055";
     case "blast-rifle":
-      return "#ff4f7d";
+      return "#ff2b72";
     case "mine":
       return "#f6c85f";
     case "emp":
@@ -1287,7 +1287,7 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
       break;
     case "blade":
       context.rotate(-0.55);
-      context.strokeStyle = "#ff2f55";
+      context.strokeStyle = "#ff0055";
       context.lineWidth = 8;
       context.beginPath();
       context.moveTo(-23, 9);
@@ -1315,10 +1315,10 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
       context.stroke();
       context.strokeStyle = "#ffffff";
       context.lineWidth = 2;
-      for (let index = 0; index < 3; index += 1) {
+      for (let index = 0; index < 4; index += 1) {
         context.beginPath();
-        context.moveTo(8 + index * 7, -13 + index * 2);
-        context.lineTo(17 + index * 5, -17 + index * 2);
+        context.moveTo(5 + index * 6, -13 + index * 2);
+        context.lineTo(14 + index * 5, -17 + index * 2);
         context.stroke();
       }
       break;

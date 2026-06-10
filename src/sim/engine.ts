@@ -109,7 +109,7 @@ const ROCKET_ACCELERATION = 3.1;
 const ROCKET_MAX_SPEED = 1500;
 const COLLISION_DAMAGE_COOLDOWN = 0.45;
 const KNOCKBACK_MULTIPLIER = 2.1;
-const SHOOTER_RECOIL_MULTIPLIER = 1.15;
+const SHOOTER_RECOIL_MULTIPLIER = 0.23;
 const EMP_RADIUS_MULTIPLIER = 2;
 // Default cadences (seconds) when a config doesn't specify them. The movement
 // slot and weapon list pick on these fixed beats so the on-screen reels stay in
@@ -125,8 +125,8 @@ const RAILGUN_CHARGE_SECONDS = 1;
 const RAILGUN_RESOLVE_SECONDS = 0.3;
 const RAILGUN_PAUSE_BUFFER = 0.5;
 const BLADE_HOLD_SECONDS = 1;
-const BLADE_SWING_SECONDS = 0.82;
-const BLAST_RIFLE_SHOT_INTERVAL = 0.12;
+const BLADE_SWING_SECONDS = 0.41;
+const BLAST_RIFLE_SHOT_INTERVAL = 0.04;
 const SHIELD_REGEN_DELAY_SECONDS = 2;
 
 export function simulateFight(config: FightConfig): FightResult {
@@ -693,8 +693,8 @@ function fireWeapon(input: {
   }
 
   if (weapon.id === "blast-rifle") {
-    for (let index = 0; index < 3; index += 1) {
-      const spread = ((rngNext() * 54 - 27) * Math.PI) / 180;
+    for (let index = 0; index < 4; index += 1) {
+      const spread = ((rngNext() * 27 - 13.5) * Math.PI) / 180;
       pendingShots.push({
         id: `blast-rifle-${attacker.id}-${time.toFixed(2)}-${index}`,
         weapon,
@@ -1295,7 +1295,7 @@ function updatePendingShots(
       explosionRadius: 0,
     });
     effects.push(
-      createEffect("muzzle", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), shot.weapon.radius + 18, time, "#ff4f7d", {
+      createEffect("muzzle", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), shot.weapon.radius + 18, time, "#ff2b72", {
         weaponId: shot.weapon.id,
       })
     );
@@ -1337,7 +1337,7 @@ function updateBladeSwings(
         distance(projectile.position, attacker.position) <= bladeReach + projectile.radius
       ) {
         effects.push(
-          createEffect("spark", projectile.position, projectile.radius + 20, time, "#ff2f55", {
+          createEffect("spark", projectile.position, projectile.radius + 20, time, "#ff0055", {
             weaponId: swing.weapon.id,
           })
         );
@@ -1356,7 +1356,7 @@ function updateBladeSwings(
         swing.hitRobotIds.add(target.id);
         applyDamage(attacker, target, swing.weapon, time, events, damageByRobot, effects);
         effects.push(
-          createEffect("hit", target.position, swing.weapon.radius * 0.36, time, "#ff2f55", {
+          createEffect("hit", target.position, swing.weapon.radius * 0.36, time, "#ff0055", {
             weaponId: swing.weapon.id,
           })
         );
@@ -1588,7 +1588,7 @@ function captureFrame(
           radius: swing.weapon.range,
           age: time - swing.startedAt,
           duration: swing.expiresAt - swing.startedAt,
-          color: "#ff2f55",
+          color: "#ff0055",
           spin: attacker.angle + swingProgress * Math.PI * 2,
           variant: time < swing.swingStartAt ? 0 : 1,
         };
