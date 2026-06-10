@@ -58,6 +58,7 @@ export function drawFightFrame(
   drawRobots(context, frame, result.config.arena, layout);
   context.restore();
 
+  drawArenaFrame(context, layout);
   drawRailgunOverlay(context, frame, result.config.arena, layout);
 
   drawFloatingActions(context, frame, result, layout);
@@ -248,7 +249,12 @@ function drawArena(
     context.stroke();
   }
   context.restore();
+}
 
+// Drawn after the clipped projectiles/effects so nothing renders on top of
+// the playfield border.
+function drawArenaFrame(context: CanvasRenderingContext2D, layout: Layout) {
+  const rect = layout.arena;
   context.strokeStyle = "#ffdd78";
   context.lineWidth = 8;
   context.strokeRect(rect.x, rect.y, rect.width, rect.height);

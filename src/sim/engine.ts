@@ -51,6 +51,7 @@ type ProjectileState = ProjectileFrame & {
     major: number;
     minor: number;
     omega: number;
+    secondScale: number; // size multiplier applied to the 2nd loop
   };
 };
 
@@ -570,9 +571,10 @@ function fireWeapon(input: {
     // Fixed elliptical path: a big stretched loop elongated along the aim
     // direction. Traced parametrically so it closes back on the launch point.
     const spin = rngNext() > 0.5 ? 1 : -1;
-    const period = 1.6;
-    const major = 250; // forward reach (along aim)
-    const minor = 130; // side width (perpendicular)
+    const period = 1.4; // seconds per loop
+    const loops = 2;
+    const major = 500; // forward reach (along aim)
+    const minor = 260; // side width (perpendicular)
     const omega = (Math.PI * 2) / period;
     const start = add(attacker.position, mul(direction, ROBOT_RADIUS));
     projectiles.push({
@@ -589,7 +591,7 @@ function fireWeapon(input: {
       curve: 0,
       lastTrailAt: time,
       age: 0,
-      expiresAt: time + period,
+      expiresAt: time + period * loops,
       acceleration: 0,
       explosive: false,
       explosionRadius: 0,
@@ -600,6 +602,7 @@ function fireWeapon(input: {
         major,
         minor,
         omega,
+        secondScale: 0.55,
       },
     });
     effects.push(
@@ -795,19 +798,25 @@ function updateProjectiles(
     }
 
     if (projectile.ellipse) {
-      // Follow a fixed stretched-circle path parametrically (boomerang).
+      // Follow a fixed stretched-circle path parametrically (boomerang). It
+      // runs two loops; the second loop is smaller. Both loops pass through
+      // the launch point at the seam (theta = 2pi), so the scale change is
+      // seamless.
       const e = projectile.ellipse;
       const theta = projectile.age * e.omega;
-      const reach = e.major * (1 - Math.cos(theta));
-      const swing = e.minor * Math.sin(theta);
+      const loopScale = theta < Math.PI * 2 ? 1 : e.secondScale;
+      const major = e.major * loopScale;
+      const minor = e.minor * loopScale;
+      const reach = major * (1 - Math.cos(theta));
+      const swing = minor * Math.sin(theta);
       projectile.position = {
         x: e.origin.x + e.axis.x * reach + e.side.x * swing,
         y: e.origin.y + e.axis.y * reach + e.side.y * swing,
       };
       // Velocity (tangent) drives the rendered facing of the blade.
       projectile.velocity = {
-        x: (e.axis.x * e.major * Math.sin(theta) + e.side.x * e.minor * Math.cos(theta)) * e.omega,
-        y: (e.axis.y * e.major * Math.sin(theta) + e.side.y * e.minor * Math.cos(theta)) * e.omega,
+        x: (e.axis.x * major * Math.sin(theta) + e.side.x * minor * Math.cos(theta)) * e.omega,
+        y: (e.axis.y * major * Math.sin(theta) + e.side.y * minor * Math.cos(theta)) * e.omega,
       };
     } else {
       if (projectile.curve !== 0 && projectile.age < 1.15) {
