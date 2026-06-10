@@ -1,5 +1,5 @@
 import { getClass, getWeapon } from "./catalog";
-import { createRng, weightedPick } from "./random";
+import { createRng, weightedRoll } from "./random";
 import type {
   EffectFrame,
   FightConfig,
@@ -91,19 +91,28 @@ export function simulateFight(config: FightConfig): FightResult {
         }
 
         if (time >= robot.nextMoveAt) {
-          robot.intent = weightedPick(rng, robot.movementDice);
+          const movementRoll = weightedRoll(rng, robot.movementDice);
+          robot.intent = movementRoll.id;
           robot.lastMove = robot.intent;
           robot.nextMoveAt = time + 0.85 + rng.next() * 0.95;
-          events.push({ type: "movement", time, robotId: robot.id, movement: robot.intent });
+          events.push({
+            type: "movement",
+            time,
+            robotId: robot.id,
+            movement: robot.intent,
+            roll: movementRoll.roll,
+            rollTotal: movementRoll.total,
+          });
         }
 
         applyMovement(robot, target, config, tickStep);
 
         if (time >= robot.nextWeaponAt) {
-          const weaponId = weightedPick(
+          const weaponRoll = weightedRoll(
             rng,
             robot.weaponDice.filter((die) => robot.arsenal.includes(die.id))
           );
+          const weaponId = weaponRoll.id;
           const weapon = getWeapon(weaponId);
 
           if ((robot.cooldowns[weaponId] ?? 0) <= time) {
@@ -112,6 +121,8 @@ export function simulateFight(config: FightConfig): FightResult {
               attacker: robot,
               target,
               time,
+              roll: weaponRoll.roll,
+              rollTotal: weaponRoll.total,
               rngNext: rng.next,
               projectiles,
               effects,
@@ -271,6 +282,8 @@ function fireWeapon(input: {
   attacker: RobotState;
   target: RobotState;
   time: number;
+  roll: number;
+  rollTotal: number;
   rngNext: () => number;
   projectiles: ProjectileState[];
   effects: EffectFrame[];
@@ -278,8 +291,19 @@ function fireWeapon(input: {
   robots: RobotState[];
   damageByRobot: Record<string, number>;
 }) {
-  const { weapon, attacker, target, time, rngNext, projectiles, effects, events, damageByRobot } =
-    input;
+  const {
+    weapon,
+    attacker,
+    target,
+    time,
+    roll,
+    rollTotal,
+    rngNext,
+    projectiles,
+    effects,
+    events,
+    damageByRobot,
+  } = input;
   const targetDistance = distance(attacker.position, target.position);
 
   if (weapon.kind !== "defense" && targetDistance > weapon.range) {
@@ -292,6 +316,8 @@ function fireWeapon(input: {
     robotId: attacker.id,
     targetId: target.id,
     weaponId: weapon.id,
+    roll,
+    rollTotal,
     sound: weapon.sound,
   });
 

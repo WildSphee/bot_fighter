@@ -37,15 +37,23 @@ export function weightedPick<T extends string>(
   rng: Rng,
   items: Array<{ id: T; weight: number }>
 ): T {
+  return weightedRoll(rng, items).id;
+}
+
+export function weightedRoll<T extends string>(
+  rng: Rng,
+  items: Array<{ id: T; weight: number }>
+): { id: T; roll: number; total: number } {
   const total = items.reduce((sum, item) => sum + item.weight, 0);
-  let roll = rng.next() * total;
+  const roll = Math.max(1, Math.ceil(rng.next() * total));
+  let remaining = roll;
 
   for (const item of items) {
-    roll -= item.weight;
-    if (roll <= 0) {
-      return item.id;
+    remaining -= item.weight;
+    if (remaining <= 0) {
+      return { id: item.id, roll, total };
     }
   }
 
-  return items[items.length - 1].id;
+  return { id: items[items.length - 1].id, roll, total };
 }

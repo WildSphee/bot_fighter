@@ -146,6 +146,8 @@ export type FightEvent =
       time: number;
       robotId: string;
       movement: MovementId;
+      roll: number;
+      rollTotal: number;
     }
   | {
       type: "weapon";
@@ -153,6 +155,8 @@ export type FightEvent =
       robotId: string;
       targetId?: string;
       weaponId: WeaponId;
+      roll: number;
+      rollTotal: number;
       sound: SoundEventType;
     }
   | {
