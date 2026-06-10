@@ -530,6 +530,10 @@ function drawRobots(
   layout: Layout
 ) {
   for (const robot of frame.robots) {
+    if (!robot.alive) {
+      continue;
+    }
+
     const position = mapPoint(robot.position, arena, layout.arena);
     context.save();
     context.translate(position.x, position.y);

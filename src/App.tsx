@@ -4,8 +4,10 @@ import {
   ExternalLink,
   FileJson,
   Music,
+  Plus,
   Play,
   RefreshCw,
+  Trash2,
   Volume2,
   VolumeX,
   Settings2,
@@ -19,15 +21,17 @@ import { createSoundEngine, type SoundEngine } from "./audio/sfx";
 import { recordReel } from "./export/recordReel";
 import { drawFightFrame } from "./render/drawFight";
 import {
-  MOVEMENT_DICE,
+  MOVEMENT_PROFILES,
   ROBOT_CLASSES,
   WEAPONS,
+  createRobotFromClass,
   createDefaultFightConfig,
+  syncRobotWithClass,
 } from "./sim/catalog";
 import { cloneFightConfig, simulateFight } from "./sim/engine";
-import type { FightConfig, FightResult, RobotConfig } from "./sim/types";
+import type { FightConfig, FightResult, MovementProfileId, RobotClass, RobotConfig } from "./sim/types";
 
-type Tab = "setup" | "dice" | "export" | "history";
+type Tab = "setup" | "dice" | "movement" | "export" | "history";
 
 type HistoryItem = {
   id: string;
@@ -38,9 +42,11 @@ type HistoryItem = {
 };
 
 const HISTORY_KEY = "bot-fighter-history";
+const CLASS_PROFILE_KEY = "bot-fighter-class-profiles";
 
 export default function App() {
   const [seed, setSeed] = useState("bot-fighter-001");
+  const [classes, setClasses] = useState<RobotClass[]>(() => readClassProfiles());
   const [robots, setRobots] = useState<RobotConfig[]>(() =>
     cloneFightConfig(createDefaultFightConfig()).robots
   );
@@ -58,14 +64,20 @@ export default function App() {
   const lastSoundTimeRef = useRef(-0.01);
   const soundEngineRef = useRef<SoundEngine | null>(null);
 
+  const syncedRobots = useMemo(
+    () => robots.map((robot, index) => syncRobotWithClass(robot, classes, index)),
+    [classes, robots]
+  );
+
   const config = useMemo<FightConfig>(
     () => ({
       ...createDefaultFightConfig(seed),
       seed,
       maxDuration,
-      robots,
+      classes,
+      robots: syncedRobots,
     }),
-    [maxDuration, robots, seed]
+    [classes, maxDuration, seed, syncedRobots]
   );
   const result = useMemo(() => simulateFight(config), [config]);
   const frame = result.frames[Math.min(frameIndex, result.frames.length - 1)] ?? result.frames[0];
@@ -141,8 +153,61 @@ export default function App() {
     lastSoundTimeRef.current = frame.time;
   }, [frame.time, isPlaying, result.events, soundEnabled]);
 
+  useEffect(() => {
+    window.localStorage.setItem(CLASS_PROFILE_KEY, JSON.stringify(classes));
+    void fetch("http://localhost:8787/api/class-profiles", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ classes }),
+    }).catch(() => undefined);
+  }, [classes]);
+
+  useEffect(() => {
+    void fetch("http://localhost:8787/api/class-profiles")
+      .then((response) => (response.ok ? response.json() : undefined))
+      .then((payload: { classes?: RobotClass[] } | undefined) => {
+        if (payload?.classes?.length) {
+          setClasses(payload.classes);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
   function updateRobot(robotId: string, updater: (robot: RobotConfig) => RobotConfig) {
     setRobots((current) => current.map((robot) => (robot.id === robotId ? updater(robot) : robot)));
+  }
+
+  function updateClass(classId: string, updater: (robotClass: RobotClass) => RobotClass) {
+    setClasses((current) =>
+      current.map((robotClass) => {
+        if (robotClass.id !== classId) {
+          return robotClass;
+        }
+
+        const next = updater(robotClass);
+        return {
+          ...next,
+          arsenal: next.arsenal.length > 0 ? next.arsenal : [WEAPONS[0].id],
+        };
+      })
+    );
+  }
+
+  function addBot() {
+    setRobots((current) => {
+      const next = createRobotFromClass(classes[0]?.id ?? ROBOT_CLASSES[0].id, current.length, classes);
+      return [
+        ...current,
+        {
+          ...next,
+          id: `${next.classId}-${Date.now().toString(36)}`,
+        },
+      ];
+    });
+  }
+
+  function removeBot(robotId: string) {
+    setRobots((current) => (current.length > 2 ? current.filter((robot) => robot.id !== robotId) : current));
   }
 
   function randomizeSeed() {
@@ -168,8 +233,8 @@ export default function App() {
   }
 
   function saveToHistory(resultToSave: FightResult) {
-    const winnerName =
-      resultToSave.config.robots.find((robot) => robot.id === resultToSave.winnerId)?.name ?? "Draw";
+    const winnerRobot = resultToSave.config.robots.find((robot) => robot.id === resultToSave.winnerId);
+    const winnerName = winnerRobot ? getClassName(winnerRobot.classId, resultToSave.config.classes) : "Draw";
     const item: HistoryItem = {
       id: `${resultToSave.config.seed}-${Date.now()}`,
       seed: resultToSave.config.seed,
@@ -277,6 +342,13 @@ export default function App() {
               Dice
             </button>
             <button
+              className={activeTab === "movement" ? "tab-button is-active" : "tab-button"}
+              onClick={() => setActiveTab("movement")}
+            >
+              <Swords size={17} />
+              Move
+            </button>
+            <button
               className={activeTab === "export" ? "tab-button is-active" : "tab-button"}
               onClick={() => setActiveTab("export")}
             >
@@ -328,21 +400,20 @@ export default function App() {
                 </label>
               </div>
 
-              {robots.map((robot) => (
+              {robots.map((robot, index) => (
                 <section className="robot-editor" key={robot.id}>
                   <div className="robot-editor__header">
-                    <span style={{ background: robot.palette.body }} />
-                    <strong>{robot.name}</strong>
+                    <span style={{ background: classes.find((robotClass) => robotClass.id === robot.classId)?.palette.body }} />
+                    <strong>Bot {index + 1}</strong>
+                    <button
+                      className="icon-button"
+                      title="Remove bot"
+                      onClick={() => removeBot(robot.id)}
+                      disabled={robots.length <= 2}
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
-                  <label className="field">
-                    <span>Name</span>
-                    <input
-                      value={robot.name}
-                      onChange={(event) =>
-                        updateRobot(robot.id, (current) => ({ ...current, name: event.target.value }))
-                      }
-                    />
-                  </label>
                   <label className="field">
                     <span>Class</span>
                     <select
@@ -351,7 +422,7 @@ export default function App() {
                         updateRobot(robot.id, (current) => ({ ...current, classId: event.target.value }))
                       }
                     >
-                      {ROBOT_CLASSES.map((robotClass) => (
+                      {classes.map((robotClass) => (
                         <option key={robotClass.id} value={robotClass.id}>
                           {robotClass.name}
                         </option>
@@ -360,25 +431,44 @@ export default function App() {
                   </label>
                 </section>
               ))}
+              <button className="primary-button full-width" onClick={addBot}>
+                <Plus size={18} />
+                Add Bot
+              </button>
             </div>
           )}
 
           {activeTab === "dice" && (
             <div className="panel-stack">
-              {robots.map((robot) => (
-                <section className="robot-editor" key={robot.id}>
+              {classes.map((robotClass) => (
+                <section className="robot-editor" key={robotClass.id}>
                   <div className="robot-editor__header">
-                    <span style={{ background: robot.palette.body }} />
-                    <strong>{robot.name}</strong>
+                    <span style={{ background: robotClass.palette.body }} />
+                    <strong>{robotClass.name}</strong>
                   </div>
+                  <label className="field">
+                    <span>Starting Shield</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={80}
+                      value={robotClass.shield}
+                      onChange={(event) =>
+                        updateClass(robotClass.id, (current) => ({
+                          ...current,
+                          shield: Number(event.target.value),
+                        }))
+                      }
+                    />
+                  </label>
                   <div className="check-grid">
                     {WEAPONS.map((weapon) => (
                       <label key={weapon.id} className="check-row">
                         <input
                           type="checkbox"
-                          checked={robot.arsenal.includes(weapon.id)}
+                          checked={robotClass.arsenal.includes(weapon.id)}
                           onChange={(event) =>
-                            updateRobot(robot.id, (current) => {
+                            updateClass(robotClass.id, (current) => {
                               const arsenal = event.target.checked
                                 ? [...current.arsenal, weapon.id]
                                 : current.arsenal.filter((id) => id !== weapon.id);
@@ -390,43 +480,43 @@ export default function App() {
                       </label>
                     ))}
                   </div>
-                  <div className="dice-list">
-                    {robot.weaponDice.map((die) => (
-                      <label className="dice-row" key={die.id}>
-                        <span>{WEAPONS.find((weapon) => weapon.id === die.id)?.name}</span>
-                        <input
-                          type="number"
-                          min={0}
-                          max={50}
-                          value={die.weight}
-                          onChange={(event) =>
-                            updateRobot(robot.id, (current) => ({
-                              ...current,
-                              weaponDice: current.weaponDice.map((currentDie) =>
-                                currentDie.id === die.id
-                                  ? { ...currentDie, weight: Number(event.target.value) }
-                                  : currentDie
-                              ),
-                            }))
-                          }
-                        />
-                      </label>
+                  <p className="muted">Weapon odds are automatic: {Math.round(100 / Math.max(1, robotClass.arsenal.length))}% each.</p>
+                </section>
+              ))}
+            </div>
+          )}
+
+          {activeTab === "movement" && (
+            <div className="panel-stack">
+              {classes.map((robotClass) => (
+                <section className="robot-editor" key={robotClass.id}>
+                  <div className="robot-editor__header">
+                    <span style={{ background: robotClass.palette.body }} />
+                    <strong>{robotClass.name}</strong>
+                  </div>
+                  <label className="field">
+                    <span>Movement Profile</span>
+                    <select
+                      value={robotClass.movementProfile}
+                      onChange={(event) =>
+                        updateClass(robotClass.id, (current) => ({
+                          ...current,
+                          movementProfile: event.target.value as MovementProfileId,
+                        }))
+                      }
+                    >
+                      <option value="balanced">Balanced</option>
+                      <option value="aggressive">Aggressive</option>
+                      <option value="evasive">Evasive</option>
+                    </select>
+                  </label>
+                  <div className="movement-grid">
+                    {MOVEMENT_PROFILES[robotClass.movementProfile].map((die, index) => (
+                      <span key={`${die.id}-${index}`}>{die.id}</span>
                     ))}
                   </div>
                 </section>
               ))}
-
-              <section className="robot-editor">
-                <div className="robot-editor__header">
-                  <Dices size={17} />
-                  <strong>Movement die</strong>
-                </div>
-                <div className="movement-grid">
-                  {MOVEMENT_DICE.map((die) => (
-                    <span key={die.id}>{die.id}</span>
-                  ))}
-                </div>
-              </section>
             </div>
           )}
 
@@ -438,7 +528,7 @@ export default function App() {
               </section>
               <section className="metric-panel">
                 <span>Winner</span>
-                <strong>{winner?.name ?? "Draw"}</strong>
+                <strong>{winner ? getClassName(winner.classId, classes) : "Draw"}</strong>
               </section>
               <section className="metric-panel">
                 <span>Runtime</span>
@@ -512,7 +602,7 @@ export default function App() {
           <div className="match-strip">
             <div className="result-chip">
               <Swords size={18} />
-              <strong>{robots.map((robot) => robot.name).join(" vs ")}</strong>
+              <strong>{syncedRobots.map((robot) => getClassName(robot.classId, classes)).join(" vs ")}</strong>
             </div>
             <div className="progress-track">
               <span style={{ width: `${(frame.time / result.duration) * 100}%` }} />
@@ -523,7 +613,7 @@ export default function App() {
         <aside className="telemetry" aria-label="Fight telemetry">
           <section className="score-band">
             <span>Winner</span>
-            <strong>{winner?.name ?? "Draw"}</strong>
+            <strong>{winner ? getClassName(winner.classId, classes) : "Draw"}</strong>
             <small>{result.events.find((event) => event.type === "winner")?.reason ?? "pending"}</small>
           </section>
 
@@ -538,11 +628,11 @@ export default function App() {
           </section>
 
           <section className="stat-grid">
-            {robots.map((robot) => {
+            {syncedRobots.map((robot) => {
               const robotFrame = frame.robots.find((candidate) => candidate.id === robot.id);
               return (
                 <div className="stat-box" key={robot.id}>
-                  <span>{robot.name}</span>
+                  <span>{getClassName(robot.classId, classes)}</span>
                   <strong>{Math.round(robotFrame?.hp ?? 0)} HP</strong>
                   <small>{Math.round(result.damageByRobot[robot.id] ?? 0)} damage</small>
                 </div>
@@ -564,6 +654,23 @@ function readHistory(): HistoryItem[] {
   }
 }
 
+function readClassProfiles(): RobotClass[] {
+  try {
+    const raw = window.localStorage.getItem(CLASS_PROFILE_KEY);
+    return raw ? (JSON.parse(raw) as RobotClass[]) : ROBOT_CLASSES.map((robotClass) => ({
+      ...robotClass,
+      palette: { ...robotClass.palette },
+      arsenal: [...robotClass.arsenal],
+    }));
+  } catch {
+    return ROBOT_CLASSES.map((robotClass) => ({
+      ...robotClass,
+      palette: { ...robotClass.palette },
+      arsenal: [...robotClass.arsenal],
+    }));
+  }
+}
+
 function summarizeResult(result: FightResult) {
   return {
     seed: result.config.seed,
@@ -575,7 +682,10 @@ function summarizeResult(result: FightResult) {
 }
 
 function formatEvent(event: FightResult["events"][number], config: FightConfig): string {
-  const robotName = (id?: string) => config.robots.find((robot) => robot.id === id)?.name ?? "Unknown";
+  const robotName = (id?: string) => {
+    const robot = config.robots.find((candidate) => candidate.id === id);
+    return robot ? getClassName(robot.classId, config.classes) : "Unknown";
+  };
 
   if (event.type === "weapon") {
     const weapon = WEAPONS.find((candidate) => candidate.id === event.weaponId);
@@ -591,4 +701,8 @@ function formatEvent(event: FightResult["events"][number], config: FightConfig):
   }
 
   return event.type;
+}
+
+function getClassName(classId: string, classes: RobotClass[]): string {
+  return classes.find((robotClass) => robotClass.id === classId)?.name ?? classId;
 }

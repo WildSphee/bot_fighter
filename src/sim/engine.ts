@@ -1,4 +1,5 @@
 import { getClass, getWeapon } from "./catalog";
+import { createMovementDice, createWeaponDice } from "./catalog";
 import { createRng, weightedRoll } from "./random";
 import type {
   EffectFrame,
@@ -13,6 +14,7 @@ import type {
   Vec2,
   WeaponDefinition,
   WeaponId,
+  RobotClass,
 } from "./types";
 import { add, angleTo, clamp, distance, mul, normalize, rotate90, sub } from "./vector";
 
@@ -20,6 +22,7 @@ type RobotState = RobotFrame & {
   arsenal: RobotConfig["arsenal"];
   movementDice: RobotConfig["movementDice"];
   weaponDice: RobotConfig["weaponDice"];
+  classProfile: RobotClass;
   damageDone: number;
   nextMoveAt: number;
   nextWeaponAt: number;
@@ -208,7 +211,7 @@ function createInitialRobots(config: FightConfig): RobotState[] {
   const radius = Math.min(config.arena.width, config.arena.height) * 0.3;
 
   return config.robots.map((robot, index) => {
-    const robotClass = getClass(robot.classId);
+    const robotClass = getClass(robot.classId, config.classes);
     const angle = (Math.PI * 2 * index) / config.robots.length - Math.PI / 2;
     const position = {
       x: center.x + Math.cos(angle) * radius,
@@ -223,6 +226,11 @@ function createInitialRobots(config: FightConfig): RobotState[] {
 
     return {
       ...robot,
+      name: robotClass.name,
+      palette: { ...robotClass.palette },
+      arsenal: [...robotClass.arsenal],
+      movementDice: createMovementDice(robotClass.movementProfile),
+      weaponDice: createWeaponDice(robotClass.arsenal),
       position,
       velocity: mul(initialDirection, robotClass.speed * 0.42),
       angle,
@@ -233,6 +241,7 @@ function createInitialRobots(config: FightConfig): RobotState[] {
       alive: true,
       lastMove: "hold",
       damageDone: 0,
+      classProfile: robotClass,
       nextMoveAt: 0,
       nextWeaponAt: 0.35 + index * 0.2,
       cooldowns: {},
@@ -264,7 +273,7 @@ function applyMovement(
   config: FightConfig,
   dt: number
 ) {
-  const robotClass = getClass(robot.classId);
+  const robotClass = robot.classProfile;
   const toward = normalize(sub(target.position, robot.position));
   const sideMultiplier = robot.intent === "strafe-left" ? 1 : -1;
   const side = rotate90(toward, sideMultiplier);
@@ -293,7 +302,7 @@ function applyMovement(
 }
 
 function integrateRobot(robot: RobotState, config: FightConfig, dt: number) {
-  const robotClass = getClass(robot.classId);
+  const robotClass = robot.classProfile;
   robot.velocity = mul(robot.velocity, config.arena.drag);
   robot.position = add(robot.position, mul(robot.velocity, dt * 60));
 
@@ -335,8 +344,8 @@ function resolveRobotCollisions(robots: RobotState[]) {
 
       const normal = normalize(delta);
       const overlap = minGap - gap;
-      const leftClass = getClass(left.classId);
-      const rightClass = getClass(right.classId);
+      const leftClass = left.classProfile;
+      const rightClass = right.classProfile;
       const totalMass = leftClass.mass + rightClass.mass;
 
       left.position = add(left.position, mul(normal, (-overlap * rightClass.mass) / totalMass));
@@ -653,7 +662,7 @@ function applyDamage(
   damageByRobot: Record<string, number>,
   effects: EffectFrame[]
 ) {
-  const targetClass = getClass(target.classId);
+  const targetClass = target.classProfile;
   const shieldAbsorb = Math.min(target.shield, weapon.damage * 0.7);
   target.shield -= shieldAbsorb;
   const damage = Math.max(1, (weapon.damage - shieldAbsorb) * (1 - targetClass.armor));
@@ -678,11 +687,11 @@ function applyDamage(
   if (target.hp <= 0 && target.alive) {
     target.alive = false;
     effects.push(
-      createEffect("explosion", target.position, 96, time, target.palette.glow, {
+      createEffect("explosion", target.position, 170, time, target.palette.glow, {
         weaponId: weapon.id,
       })
     );
-    addDamageBits(effects, target.position, direction, target.palette, time, weapon.id, 26);
+    addDamageBits(effects, target.position, direction, target.palette, time, weapon.id, 40);
     events.push({
       type: "death",
       time,
@@ -955,6 +964,11 @@ export function cloneFightConfig(config: FightConfig): FightConfig {
   return {
     ...config,
     arena: { ...config.arena },
+    classes: config.classes.map((robotClass) => ({
+      ...robotClass,
+      palette: { ...robotClass.palette },
+      arsenal: [...robotClass.arsenal],
+    })),
     robots: config.robots.map((robot: RobotConfig) => ({
       ...robot,
       palette: { ...robot.palette },

@@ -1,11 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { URL } from "node:url";
-import { ARENAS, ROBOT_CLASSES, WEAPONS, createDefaultFightConfig } from "../src/sim/catalog";
+import { ARENAS, ROBOT_CLASSES, WEAPONS, createDefaultFightConfig, syncRobotWithClass } from "../src/sim/catalog";
 import { simulateFight } from "../src/sim/engine";
-import type { FightConfig, FightResult } from "../src/sim/types";
+import type { FightConfig, FightResult, RobotClass } from "../src/sim/types";
 
 const PORT = Number(process.env.API_PORT ?? 8787);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
+let classProfiles = cloneClassProfiles(ROBOT_CLASSES);
 
 const server = createServer(async (request, response) => {
   setCorsHeaders(response);
@@ -32,15 +33,32 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/api/catalog") {
       sendJson(response, 200, {
         arenas: ARENAS,
-        robotClasses: ROBOT_CLASSES,
+        robotClasses: classProfiles,
         weapons: WEAPONS,
-        defaultConfig: createDefaultFightConfig(url.searchParams.get("seed") ?? undefined),
+        defaultConfig: withClassProfiles(createDefaultFightConfig(url.searchParams.get("seed") ?? undefined)),
       });
       return;
     }
 
     if (request.method === "GET" && url.pathname === "/api/default-fight") {
-      sendJson(response, 200, createDefaultFightConfig(url.searchParams.get("seed") ?? undefined));
+      sendJson(response, 200, withClassProfiles(createDefaultFightConfig(url.searchParams.get("seed") ?? undefined)));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/class-profiles") {
+      sendJson(response, 200, { classes: classProfiles });
+      return;
+    }
+
+    if (request.method === "PUT" && url.pathname === "/api/class-profiles") {
+      const body = await readJson<{ classes?: RobotClass[] }>(request);
+      if (!body.classes?.length) {
+        sendJson(response, 400, { error: "classes must be a non-empty array" });
+        return;
+      }
+
+      classProfiles = cloneClassProfiles(body.classes);
+      sendJson(response, 200, { classes: classProfiles });
       return;
     }
 
@@ -54,7 +72,14 @@ const server = createServer(async (request, response) => {
 
     sendJson(response, 404, {
       error: "Not found",
-      routes: ["GET /api/health", "GET /api/catalog", "GET /api/default-fight", "POST /api/simulate"],
+      routes: [
+        "GET /api/health",
+        "GET /api/catalog",
+        "GET /api/default-fight",
+        "GET /api/class-profiles",
+        "PUT /api/class-profiles",
+        "POST /api/simulate",
+      ],
     });
   } catch (error) {
     sendJson(response, 500, {
@@ -90,10 +115,13 @@ async function readJson<T>(request: IncomingMessage): Promise<T> {
 }
 
 function summarizeResult(result: FightResult) {
+  const winnerRobot = result.config.robots.find((robot) => robot.id === result.winnerId);
+  const winnerClass = result.config.classes.find((robotClass) => robotClass.id === winnerRobot?.classId);
+
   return {
     seed: result.config.seed,
     winnerId: result.winnerId,
-    winnerName: result.config.robots.find((robot) => robot.id === result.winnerId)?.name ?? "Draw",
+    winnerName: winnerClass?.name ?? "Draw",
     duration: result.duration,
     damageByRobot: result.damageByRobot,
     frameCount: result.frames.length,
@@ -101,4 +129,20 @@ function summarizeResult(result: FightResult) {
     lastFrame: result.frames[result.frames.length - 1],
     events: result.events,
   };
+}
+
+function withClassProfiles(config: FightConfig): FightConfig {
+  return {
+    ...config,
+    classes: cloneClassProfiles(classProfiles),
+    robots: config.robots.map((robot, index) => syncRobotWithClass(robot, classProfiles, index)),
+  };
+}
+
+function cloneClassProfiles(classes: RobotClass[]): RobotClass[] {
+  return classes.map((robotClass) => ({
+    ...robotClass,
+    palette: { ...robotClass.palette },
+    arsenal: [...robotClass.arsenal],
+  }));
 }

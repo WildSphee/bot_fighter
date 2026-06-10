@@ -20,6 +20,13 @@ export type RobotClass = {
   armor: number;
   mass: number;
   shield: number;
+  arsenal: WeaponId[];
+  movementProfile: MovementProfileId;
+  palette: {
+    body: string;
+    trim: string;
+    glow: string;
+  };
 };
 
 export type MovementId =
@@ -30,6 +37,8 @@ export type MovementId =
   | "strafe-right"
   | "hold"
   | "evade";
+
+export type MovementProfileId = "balanced" | "aggressive" | "evasive";
 
 export type WeaponId =
   | "ray"
@@ -83,6 +92,7 @@ export type FightConfig = {
   tickRate: number;
   previewFps: number;
   arena: ArenaConfig;
+  classes: RobotClass[];
   robots: RobotConfig[];
 };
 

@@ -56,6 +56,10 @@ describe("simulateFight", () => {
         width: 300,
         height: 500,
       };
+      config.classes = config.classes.map((robotClass) => ({
+        ...robotClass,
+        arsenal: [weapon.id],
+      }));
       config.robots = config.robots.map((robot, index) => ({
         ...robot,
         arsenal: [weapon.id],
@@ -102,6 +106,11 @@ describe("simulateFight", () => {
   it("telegraphs railgun before resolving damage", () => {
     const config = createDefaultFightConfig("railgun-telegraph");
     config.maxDuration = 3;
+    config.classes = config.classes.map((robotClass) => ({
+      ...robotClass,
+      arsenal: ["railgun"],
+      movementProfile: "balanced",
+    }));
     config.robots = config.robots.map((robot, index) => ({
       ...robot,
       arsenal: ["railgun"],
