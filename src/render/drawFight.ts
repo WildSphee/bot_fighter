@@ -1,4 +1,4 @@
-import { WEAPONS } from "../sim/catalog";
+import { ROBOT_CLASSES, WEAPONS } from "../sim/catalog";
 import type {
   ArenaConfig,
   FightEvent,
@@ -32,6 +32,12 @@ type Rect = {
   height: number;
 };
 
+type ActionRoll = {
+  event: Extract<FightEvent, { type: "movement" | "weapon" }>;
+  value: number;
+  count: number;
+};
+
 export function drawFightFrame(
   context: CanvasRenderingContext2D,
   frame: FightFrame,
@@ -40,7 +46,7 @@ export function drawFightFrame(
   const layout = createLayout(context);
 
   context.clearRect(0, 0, layout.width, layout.height);
-  drawBackground(context, layout);
+  drawBackground(context, layout, frame.time);
   drawTopBar(context, frame, result, layout);
   drawArena(context, result.config.arena, layout);
 
@@ -76,7 +82,7 @@ function createLayout(context: CanvasRenderingContext2D): Layout {
   };
 }
 
-function drawBackground(context: CanvasRenderingContext2D, layout: Layout) {
+function drawBackground(context: CanvasRenderingContext2D, layout: Layout, time: number) {
   const gradient = context.createLinearGradient(0, 0, layout.width, layout.height);
   gradient.addColorStop(0, "#0e1b22");
   gradient.addColorStop(0.5, "#221a2b");
@@ -84,12 +90,49 @@ function drawBackground(context: CanvasRenderingContext2D, layout: Layout) {
   context.fillStyle = gradient;
   context.fillRect(0, 0, layout.width, layout.height);
 
+  drawBackgroundCubes(context, layout, time);
+
   context.save();
   context.globalAlpha = 0.28;
   context.fillStyle = "#ffdd78";
   context.fillRect(0, layout.topBar.height - 4, layout.width, 4);
   context.fillStyle = "#2fffc8";
   context.fillRect(0, layout.actionBar.y, layout.width, 4);
+  context.restore();
+}
+
+function drawBackgroundCubes(context: CanvasRenderingContext2D, layout: Layout, time: number) {
+  const cubeCount = 14;
+
+  context.save();
+  context.globalAlpha = 0.1;
+  context.strokeStyle = "#d7f8ff";
+  context.lineWidth = 2;
+
+  for (let index = 0; index < cubeCount; index += 1) {
+    const drift = (time * 0.045 + index * 0.071) % 1;
+    const baseX = ((index * 197) % layout.width) + Math.sin(index * 1.8) * 34;
+    const baseY = ((index * 311) % layout.height) + Math.cos(index * 1.3) * 44;
+    const x = (baseX + (drift - 0.5) * 90 + layout.width) % layout.width;
+    const y = (baseY + (drift - 0.5) * 150 + layout.height) % layout.height;
+    const size = 28 + drift * 88 + (index % 3) * 12;
+
+    context.save();
+    context.translate(x, y);
+    context.rotate(time * 0.16 + index * 0.7);
+    context.strokeRect(-size / 2, -size / 2, size, size);
+    context.strokeRect(-size / 2 + size * 0.18, -size / 2 - size * 0.18, size, size);
+    context.beginPath();
+    context.moveTo(-size / 2, -size / 2);
+    context.lineTo(-size / 2 + size * 0.18, -size / 2 - size * 0.18);
+    context.moveTo(size / 2, -size / 2);
+    context.lineTo(size / 2 + size * 0.18, -size / 2 - size * 0.18);
+    context.moveTo(size / 2, size / 2);
+    context.lineTo(size / 2 + size * 0.18, size / 2 - size * 0.18);
+    context.stroke();
+    context.restore();
+  }
+
   context.restore();
 }
 
@@ -107,14 +150,6 @@ function drawTopBar(
   context.font = "900 36px Inter, system-ui, sans-serif";
   context.textAlign = "center";
   context.fillText("BOT FIGHTER", layout.width / 2, 44);
-
-  const timeLeft = Math.max(0, result.duration - frame.time);
-  context.fillStyle = "#ffdd78";
-  context.font = "800 28px Inter, system-ui, sans-serif";
-  context.fillText(timeLeft.toFixed(1), layout.width / 2, 82);
-  context.fillStyle = "#9feee2";
-  context.font = "700 16px Inter, system-ui, sans-serif";
-  context.fillText(`Seed ${result.config.seed}`, layout.width / 2, 110);
 
   const slots = topSlots(frame.robots, layout);
   frame.robots.slice(0, 4).forEach((robot, index) => {
@@ -160,7 +195,7 @@ function drawTopRobotStatus(
 
   context.fillStyle = "#fff7e6";
   context.font = "900 30px Inter, system-ui, sans-serif";
-  context.fillText(robot.name, textX, rect.y + 28);
+  context.fillText(getClassName(robot.classId), textX, rect.y + 28);
   context.fillStyle = "#ffffff";
   context.font = "800 19px Inter, system-ui, sans-serif";
   context.fillText(`${Math.ceil(robot.hp)} / ${robot.maxHp} HP`, textX, rect.y + 56);
@@ -523,12 +558,12 @@ function drawBotActionPanel(
   const config = result.config.robots.find((candidate) => candidate.id === robot.id);
   const movement = latestMovement(result.events, robot.id, time);
   const weapon = latestWeapon(result.events, robot.id, time);
-  const activeEvent = weapon && time - weapon.time <= 1 ? weapon : movement && time - movement.time <= 1 ? movement : undefined;
+  const activeRoll = getActiveRoll(config, weapon, movement, time);
 
   context.save();
   context.fillStyle = "rgba(255, 250, 240, 0.08)";
   context.strokeStyle = robot.palette.glow;
-  context.lineWidth = activeEvent ? 4 : 2;
+  context.lineWidth = activeRoll ? 4 : 2;
   context.beginPath();
   context.roundRect(rect.x, rect.y, rect.width, rect.height, 8);
   context.fill();
@@ -538,17 +573,16 @@ function drawBotActionPanel(
   context.fillRect(rect.x, rect.y, 9, rect.height);
 
   context.textAlign = "left";
-  context.fillStyle = "#fff7e6";
-  context.font = "900 24px Inter, system-ui, sans-serif";
-  context.fillText(robot.name, rect.x + 22, rect.y + 34);
-
-  drawDice(context, activeEvent, time, {
+  drawDice(context, activeRoll, time, {
     x: rect.x + rect.width - 88,
     y: rect.y + 18,
     width: 58,
     height: 58,
   });
 
+  context.fillStyle = "#9feee2";
+  context.font = "800 16px Inter, system-ui, sans-serif";
+  context.fillText(getClassName(robot.classId), rect.x + 22, rect.y + 32);
   context.fillStyle = "#9feee2";
   context.font = "800 16px Inter, system-ui, sans-serif";
   context.fillText("MOVE", rect.x + 22, rect.y + 74);
@@ -563,26 +597,24 @@ function drawBotActionPanel(
   context.font = "900 22px Inter, system-ui, sans-serif";
   context.fillText(robot.lastWeapon ? getWeaponName(robot.lastWeapon) : "Waiting", rect.x + 22, rect.y + 166);
 
-  context.fillStyle = "#cdd9d6";
-  context.font = "800 14px Inter, system-ui, sans-serif";
-  const rollText = activeEvent
-    ? `${activeEvent.type === "weapon" ? "Weapon" : "Move"} roll ${activeEvent.roll}/${activeEvent.rollTotal}`
-    : "Dice ready";
-  context.fillText(rollText, rect.x + 22, rect.y + 198);
-
-  drawLoadout(context, config?.arsenal ?? [], rect, robot.palette.glow);
+  drawLoadout(context, config?.arsenal ?? [], rect, robot.palette.glow, robot.lastWeapon);
   context.restore();
 }
 
 function drawDice(
   context: CanvasRenderingContext2D,
-  event: Extract<FightEvent, { type: "movement" | "weapon" }> | undefined,
+  roll: ActionRoll | undefined,
   time: number,
   rect: Rect
 ) {
-  const age = event ? time - event.time : 2;
-  const animating = event !== undefined && age < 0.7;
-  const value = event ? (animating ? ((Math.floor(age * 28) % event.rollTotal) + 1) : event.roll) : 0;
+  const age = roll ? time - roll.event.time : 2;
+  const animating = roll !== undefined && age < 0.5;
+  const value = roll
+    ? animating
+      ? ((Math.floor(age * 22) % roll.count) + 1)
+      : roll.value
+    : 0;
+  const total = roll?.count ?? 0;
 
   context.save();
   context.translate(rect.x + rect.width / 2, rect.y + rect.height / 2);
@@ -598,8 +630,8 @@ function drawDice(
   context.stroke();
   context.fillStyle = "#202b35";
   context.textAlign = "center";
-  context.font = "900 24px Inter, system-ui, sans-serif";
-  context.fillText(value ? String(value) : "--", 0, 9);
+  context.font = "900 19px Inter, system-ui, sans-serif";
+  context.fillText(value && total ? `${value}/${total}` : "--", 0, 7);
   context.restore();
 }
 
@@ -607,32 +639,37 @@ function drawLoadout(
   context: CanvasRenderingContext2D,
   arsenal: WeaponId[],
   rect: Rect,
-  accent: string
+  accent: string,
+  selectedWeapon?: WeaponId
 ) {
-  context.fillStyle = "#9feee2";
-  context.font = "800 15px Inter, system-ui, sans-serif";
-  context.fillText("ITEMS", rect.x + 22, rect.y + 232);
+  const iconSize = 58;
+  const gap = 12;
+  const startX = rect.x + 22;
+  let x = startX;
+  let y = rect.y + 210;
 
-  let x = rect.x + 22;
-  let y = rect.y + 252;
-  for (const weaponId of arsenal.slice(0, 5)) {
-    const label = shortWeaponName(weaponId);
-    const width = Math.max(54, context.measureText(label).width + 18);
-    if (x + width > rect.x + rect.width - 18) {
-      x = rect.x + 22;
-      y += 30;
+  for (const weaponId of arsenal.slice(0, 6)) {
+    if (x + iconSize > rect.x + rect.width - 18) {
+      x = startX;
+      y += iconSize + gap;
     }
-    context.fillStyle = "rgba(255,255,255,0.12)";
-    context.strokeStyle = accent;
-    context.lineWidth = 1.5;
+
+    const selected = weaponId === selectedWeapon;
+    context.fillStyle = selected ? "rgba(255, 221, 120, 0.22)" : "rgba(255,255,255,0.12)";
+    context.strokeStyle = selected ? "#ffdd78" : accent;
+    context.lineWidth = selected ? 3 : 1.5;
     context.beginPath();
-    context.roundRect(x, y, width, 24, 5);
+    context.roundRect(x, y, iconSize, iconSize, 8);
     context.fill();
     context.stroke();
-    context.fillStyle = "#fff7e6";
-    context.font = "800 12px Inter, system-ui, sans-serif";
-    context.fillText(label, x + 9, y + 16);
-    x += width + 8;
+    drawWeaponIcon(context, weaponId, {
+      x,
+      y,
+      width: iconSize,
+      height: iconSize,
+    });
+
+    x += iconSize + gap;
   }
 }
 
@@ -657,7 +694,7 @@ function drawWinnerCard(
   context.fillText("WINNER", layout.width / 2, layout.arena.y + layout.arena.height * 0.35 + 105);
   context.fillStyle = "#ffffff";
   context.font = "800 56px Inter, system-ui, sans-serif";
-  context.fillText(winner?.name ?? "Draw", layout.width / 2, layout.arena.y + layout.arena.height * 0.35 + 178);
+  context.fillText(winner ? getClassName(winner.classId) : "Draw", layout.width / 2, layout.arena.y + layout.arena.height * 0.35 + 178);
   context.restore();
 }
 
@@ -688,6 +725,157 @@ function projectileColor(weaponId: WeaponId): string {
     default:
       return "#a9fffd";
   }
+}
+
+function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, rect: Rect) {
+  const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  const color = projectileColor(weaponId);
+
+  context.save();
+  context.translate(center.x, center.y);
+  context.strokeStyle = color;
+  context.fillStyle = color;
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.shadowBlur = 10;
+  context.shadowColor = color;
+
+  switch (weaponId) {
+    case "ray":
+      context.lineWidth = 7;
+      context.beginPath();
+      context.moveTo(-18, 12);
+      context.lineTo(-3, -5);
+      context.lineTo(6, 2);
+      context.lineTo(18, -16);
+      context.stroke();
+      break;
+    case "missile":
+      context.rotate(-0.35);
+      context.beginPath();
+      context.moveTo(20, 0);
+      context.lineTo(-10, -14);
+      context.lineTo(-4, 0);
+      context.lineTo(-10, 14);
+      context.closePath();
+      context.fill();
+      context.fillStyle = "#ffdd78";
+      context.beginPath();
+      context.moveTo(-12, 0);
+      context.lineTo(-24, -8);
+      context.lineTo(-20, 0);
+      context.lineTo(-24, 8);
+      context.closePath();
+      context.fill();
+      break;
+    case "boomerang":
+      context.lineWidth = 9;
+      context.beginPath();
+      context.arc(0, 0, 20, Math.PI * 0.15, Math.PI * 1.45);
+      context.stroke();
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 3;
+      context.stroke();
+      break;
+    case "shotgun":
+      context.globalAlpha = 0.85;
+      context.beginPath();
+      context.moveTo(-20, 10);
+      context.lineTo(20, -18);
+      context.lineTo(16, 22);
+      context.closePath();
+      context.fill();
+      break;
+    case "mine":
+      context.beginPath();
+      context.arc(0, 2, 17, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 3;
+      for (let index = 0; index < 8; index += 1) {
+        const angle = (Math.PI * 2 * index) / 8;
+        context.beginPath();
+        context.moveTo(Math.cos(angle) * 17, 2 + Math.sin(angle) * 17);
+        context.lineTo(Math.cos(angle) * 24, 2 + Math.sin(angle) * 24);
+        context.stroke();
+      }
+      break;
+    case "shield":
+      context.lineWidth = 7;
+      context.beginPath();
+      context.arc(0, 0, 21, Math.PI * 0.15, Math.PI * 1.85);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(0, -17);
+      context.lineTo(14, -4);
+      context.lineTo(9, 18);
+      context.lineTo(0, 24);
+      context.lineTo(-9, 18);
+      context.lineTo(-14, -4);
+      context.closePath();
+      context.stroke();
+      break;
+    case "emp":
+      context.lineWidth = 5;
+      for (let index = 0; index < 3; index += 1) {
+        context.beginPath();
+        context.arc(0, 0, 8 + index * 8, 0, Math.PI * 2);
+        context.stroke();
+      }
+      break;
+    case "railgun":
+      context.lineWidth = 6;
+      context.beginPath();
+      context.moveTo(-23, 0);
+      context.lineTo(23, 0);
+      context.stroke();
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(-18, -10);
+      context.lineTo(18, -10);
+      context.moveTo(-18, 10);
+      context.lineTo(18, 10);
+      context.stroke();
+      break;
+  }
+
+  context.restore();
+}
+
+function getActiveRoll(
+  config: FightResult["config"]["robots"][number] | undefined,
+  weapon: Extract<FightEvent, { type: "weapon" }> | undefined,
+  movement: Extract<FightEvent, { type: "movement" }> | undefined,
+  time: number
+): ActionRoll | undefined {
+  if (weapon && time - weapon.time <= 1.2) {
+    const items = config?.arsenal ?? [];
+    const count = Math.max(1, items.length);
+    const selectedIndex = Math.max(0, items.indexOf(weapon.weaponId));
+    return {
+      event: weapon,
+      value: selectedIndex + 1,
+      count,
+    };
+  }
+
+  if (movement && time - movement.time <= 1.2) {
+    const moves = config?.movementDice.map((die) => die.id) ?? [];
+    const count = Math.max(1, moves.length);
+    const selectedIndex = Math.max(0, moves.indexOf(movement.movement));
+    return {
+      event: movement,
+      value: selectedIndex + 1,
+      count,
+    };
+  }
+
+  return undefined;
+}
+
+function getClassName(classId: string): string {
+  return ROBOT_CLASSES.find((robotClass) => robotClass.id === classId)?.name ?? classId;
 }
 
 function subScreen(a: Vec2, b: Vec2): Vec2 {
@@ -737,14 +925,6 @@ function latestWeapon(
 
 function getWeaponName(weaponId: WeaponId): string {
   return WEAPONS.find((weapon) => weapon.id === weaponId)?.name ?? weaponId;
-}
-
-function shortWeaponName(weaponId: WeaponId): string {
-  const name = getWeaponName(weaponId);
-  return name
-    .replace("Homing ", "")
-    .replace("Energy ", "")
-    .replace("Boomerang ", "Blade ");
 }
 
 function formatMovement(movement: MovementId): string {
