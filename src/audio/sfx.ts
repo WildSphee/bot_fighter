@@ -47,6 +47,13 @@ function playSound(
     case "laser":
       tone(context, output, when, 0.13, 920, 180, "square", 0.11);
       break;
+    case "railgun":
+      tone(context, output, when, 0.08, 72, 42, "sine", 0.24);
+      tone(context, output, when, 0.18, 1480, 88, "sawtooth", 0.18);
+      tone(context, output, when + 0.035, 0.28, 64, 31, "triangle", 0.2);
+      noiseBurst(context, output, when, 0.22, 1450, 0.42);
+      noiseBurst(context, output, when + 0.05, 0.42, 180, 0.24);
+      break;
     case "missile":
       tone(context, output, when, 0.34, 120, 86, "sawtooth", 0.08);
       noiseBurst(context, output, when, 0.32, 300, 0.04);

@@ -265,7 +265,7 @@ function drawEffects(
     const alpha = Math.max(0, 1 - effect.age / effect.duration);
 
     if (effect.type === "telegraph" && effect.endPosition) {
-      drawBeamEffect(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena), alpha * 0.42);
+      drawRailgunTelegraph(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena));
       continue;
     }
 
@@ -373,6 +373,38 @@ function drawBeamEffect(
   context.restore();
 }
 
+function drawRailgunTelegraph(
+  context: CanvasRenderingContext2D,
+  effect: { color: string; radius: number; age: number; duration: number },
+  start: Vec2,
+  end: Vec2
+) {
+  const charge = Math.min(1, effect.age / 1);
+  const locked = effect.age >= 1;
+
+  context.save();
+  context.globalAlpha = locked ? 0.72 : 0.16 + charge * 0.5;
+  context.lineCap = "round";
+  context.strokeStyle = effect.color;
+  context.shadowBlur = 14 + charge * 22;
+  context.shadowColor = effect.color;
+  context.lineWidth = 5 + charge * 22;
+  context.beginPath();
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.stroke();
+
+  context.shadowBlur = 0;
+  context.globalAlpha = locked ? 0.58 : 0.08 + charge * 0.24;
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = 1 + charge * 5;
+  context.beginPath();
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.stroke();
+  context.restore();
+}
+
 function drawConeEffect(
   context: CanvasRenderingContext2D,
   effect: { color: string; radius: number },
@@ -444,7 +476,14 @@ function drawProjectiles(
     context.strokeStyle = "#ffffff";
     context.lineWidth = 3;
 
-    if (projectile.weaponId === "boomerang") {
+    if (projectile.weaponId === "shotgun") {
+      context.shadowBlur = 12;
+      context.shadowColor = "#ffd166";
+      context.beginPath();
+      context.arc(0, 0, radius, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+    } else if (projectile.weaponId === "boomerang") {
       context.beginPath();
       context.arc(0, 0, radius * 1.15, Math.PI * 0.2, Math.PI * 1.55);
       context.lineWidth = 7;
@@ -491,6 +530,7 @@ function drawRobots(
     context.save();
     context.translate(position.x, position.y);
     context.rotate(robot.angle);
+    context.scale(1.2, 1.2);
     context.globalAlpha = robot.alive ? 1 : 0.38;
 
     drawRobotBody(context, robot);
@@ -670,10 +710,10 @@ function drawBotActionPanel(
 
   context.textAlign = "left";
   drawDice(context, activeRoll, time, {
-    x: rect.x + rect.width - 88,
-    y: rect.y + 18,
-    width: 70,
-    height: 70,
+    x: rect.x + rect.width - 104,
+    y: rect.y + 14,
+    width: 84,
+    height: 84,
   });
 
   context.fillStyle = "#9feee2";
@@ -738,11 +778,11 @@ function drawLoadout(
   accent: string,
   selectedWeapon?: WeaponId
 ) {
-  const iconSize = 72;
+  const iconSize = 86;
   const gap = 12;
   const startX = rect.x + 22;
   let x = startX;
-  let y = rect.y + 210;
+  let y = rect.y + 198;
 
   for (const weaponId of arsenal.slice(0, 6)) {
     if (x + iconSize > rect.x + rect.width - 18) {

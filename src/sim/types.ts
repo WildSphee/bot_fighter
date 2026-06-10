@@ -151,6 +151,7 @@ export type FightFrame = {
 export type SoundEventType =
   | "boost"
   | "laser"
+  | "railgun"
   | "missile"
   | "impact"
   | "explosion"
@@ -191,6 +192,11 @@ export type FightEvent =
       time: number;
       robotId: string;
       killerId?: string;
+      sound: SoundEventType;
+    }
+  | {
+      type: "sound";
+      time: number;
       sound: SoundEventType;
     }
   | {

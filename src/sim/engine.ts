@@ -45,8 +45,9 @@ type PendingStrike = {
   weapon: WeaponDefinition;
   attackerId: string;
   targetId: string;
-  startPosition: Vec2;
   aimPosition: Vec2;
+  createdAt: number;
+  lockedAt: number;
   resolvesAt: number;
 };
 
@@ -89,7 +90,8 @@ export function simulateFight(config: FightConfig): FightResult {
     }
 
     if (deathTime !== undefined && time >= deathTime + WINNER_SCREEN_SECONDS) {
-      captureFrame(time, robots, projectiles, effects, frames);
+      pruneEffects(effects, deathTime + (time - deathTime) * 0.5);
+      captureFrame(time, robots, projectiles, effects, pendingStrikes, frames);
       break;
     }
 
@@ -164,10 +166,18 @@ export function simulateFight(config: FightConfig): FightResult {
       updateProjectiles(projectiles, robots, effects, events, damageByRobot, time, tickStep);
       rechargeShields(robots, tickStep);
       pruneEffects(effects, time);
+    } else {
+      const slowTime = deathTime + (time - deathTime) * 0.5;
+      const slowStep = tickStep * 0.5;
+      for (const robot of robots) {
+        integrateRobot(robot, config, slowStep);
+      }
+      updateProjectileVisuals(projectiles, effects, slowTime, slowStep);
+      pruneEffects(effects, slowTime);
     }
 
     if (time + 0.0001 >= nextFrameAt) {
-      captureFrame(time, robots, projectiles, effects, frames);
+      captureFrame(time, robots, projectiles, effects, pendingStrikes, frames);
       nextFrameAt += frameStep;
     }
   }
@@ -179,7 +189,7 @@ export function simulateFight(config: FightConfig): FightResult {
     events.push({ type: "winner", time, winnerId, reason: winnerReason, sound: "winner" });
     for (let holdTime = time; holdTime <= time + WINNER_SCREEN_SECONDS + 0.0001; holdTime += frameStep) {
       pruneEffects(effects, holdTime);
-      captureFrame(Number(holdTime.toFixed(4)), robots, projectiles, effects, frames);
+      captureFrame(Number(holdTime.toFixed(4)), robots, projectiles, effects, pendingStrikes, frames);
     }
   }
 
@@ -440,6 +450,36 @@ function fireWeapon(input: {
     return;
   }
 
+  if (weapon.id === "shotgun") {
+    const pelletCount = 5;
+    for (let index = 0; index < pelletCount; index += 1) {
+      const spread = ((index - (pelletCount - 1) / 2) * 8.5 * Math.PI) / 180;
+      const pelletDirection = rotateVector(direction, spread);
+      projectiles.push({
+        id: `shotgun-${attacker.id}-${time.toFixed(2)}-${index}`,
+        ownerId: attacker.id,
+        targetId: target.id,
+        weaponId: weapon.id,
+        position: add(attacker.position, mul(pelletDirection, ROBOT_RADIUS + 12)),
+        velocity: mul(pelletDirection, 620 + index * 18),
+        damage: weapon.damage / pelletCount,
+        radius: 8,
+        homing: 0,
+        knockback: weapon.knockback / pelletCount,
+        curve: 0,
+        lastTrailAt: time,
+        age: 0,
+        expiresAt: time + 0.48,
+      });
+    }
+    effects.push(
+      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 22)), 36, time, "#ffd166", {
+        weaponId: weapon.id,
+      })
+    );
+    return;
+  }
+
   if (weapon.kind === "field") {
     effects.push(
       createEffect("mine", add(attacker.position, mul(direction, -24)), weapon.radius + 28, time, "#f6c85f", {
@@ -465,27 +505,15 @@ function fireWeapon(input: {
       weapon,
       attackerId: attacker.id,
       targetId: target.id,
-      startPosition: { ...attacker.position },
       aimPosition: { ...target.position },
-      resolvesAt: time + 0.5,
+      createdAt: time,
+      lockedAt: time + 1,
+      resolvesAt: time + 1.3,
     });
-    effects.push(
-      createEffect("telegraph", attacker.position, 14, time, "#ffdd78", {
-        endPosition: target.position,
-        weaponId: weapon.id,
-      })
-    );
     return;
   }
 
-  if (weapon.id === "shotgun") {
-    effects.push(
-      createEffect("cone", attacker.position, 96, time, "#ffd166", {
-        endPosition: target.position,
-        weaponId: weapon.id,
-      })
-    );
-  } else if (weapon.id === "emp") {
+  if (weapon.id === "emp") {
     effects.push(
       createEffect("emp", attacker.position, weapon.radius + 96, time, "#a9fffd", {
         weaponId: weapon.id,
@@ -564,7 +592,12 @@ function updateProjectiles(
     );
 
     if (owner && hitRobot) {
-      applyDamage(owner, hitRobot, getWeapon(projectile.weaponId), time, events, damageByRobot, effects);
+      const projectileWeapon = {
+        ...getWeapon(projectile.weaponId),
+        damage: projectile.damage,
+        knockback: projectile.knockback,
+      };
+      applyDamage(owner, hitRobot, projectileWeapon, time, events, damageByRobot, effects);
       effects.push(
         createEffect("explosion", projectile.position, projectile.radius + 32, time, owner.palette.glow, {
           weaponId: projectile.weaponId,
@@ -572,6 +605,37 @@ function updateProjectiles(
       );
       projectiles.splice(index, 1);
       continue;
+    }
+
+    if (time >= projectile.expiresAt) {
+      projectiles.splice(index, 1);
+    }
+  }
+}
+
+function updateProjectileVisuals(
+  projectiles: ProjectileState[],
+  effects: EffectFrame[],
+  time: number,
+  dt: number
+) {
+  for (let index = projectiles.length - 1; index >= 0; index -= 1) {
+    const projectile = projectiles[index];
+    projectile.age += dt;
+    projectile.position = add(projectile.position, mul(projectile.velocity, dt));
+
+    if (time - projectile.lastTrailAt >= 0.06) {
+      projectile.lastTrailAt = time;
+      effects.push(
+        createEffect(
+          projectile.weaponId === "missile" ? "spark" : "trail",
+          projectile.position,
+          projectile.weaponId === "missile" ? projectile.radius + 8 : projectile.radius,
+          time,
+          projectile.weaponId === "missile" ? "#ff8f4f" : "#a9fffd",
+          { weaponId: projectile.weaponId }
+        )
+      );
     }
 
     if (time >= projectile.expiresAt) {
@@ -639,22 +703,33 @@ function updatePendingStrikes(
 ) {
   for (let index = pendingStrikes.length - 1; index >= 0; index -= 1) {
     const strike = pendingStrikes[index];
+    const attacker = robots.find((robot) => robot.id === strike.attackerId);
+    const target = robots.find((robot) => robot.id === strike.targetId);
+
+    if (time < strike.lockedAt) {
+      if (target?.alive) {
+        strike.aimPosition = { ...target.position };
+      }
+      continue;
+    }
 
     if (time < strike.resolvesAt) {
       continue;
     }
 
-    const attacker = robots.find((robot) => robot.id === strike.attackerId);
-    const target = robots.find((robot) => robot.id === strike.targetId);
+    const startPosition = attacker?.position ?? strike.aimPosition;
+    const fireDirection = normalize(sub(strike.aimPosition, startPosition));
+    const endPosition = add(startPosition, mul(fireDirection, strike.weapon.range));
 
     effects.push(
-      createEffect("beam", strike.startPosition, 18, time, "#ffdd78", {
-        endPosition: strike.aimPosition,
+      createEffect("beam", startPosition, 30, time, "#ffdd78", {
+        endPosition,
         weaponId: strike.weapon.id,
       })
     );
+    events.push({ type: "sound", time, sound: "railgun" });
 
-    if (attacker && target?.alive && pointLineDistance(target.position, strike.startPosition, strike.aimPosition) <= ROBOT_RADIUS + 8) {
+    if (attacker && target?.alive && pointLineDistance(target.position, startPosition, endPosition) <= ROBOT_RADIUS + 8) {
       applyDamage(attacker, target, strike.weapon, time, events, damageByRobot, effects);
       effects.push(
         createEffect("hit", target.position, strike.weapon.radius + 18, time, attacker.palette.glow, {
@@ -663,7 +738,7 @@ function updatePendingStrikes(
       );
     } else {
       effects.push(
-        createEffect("spark", strike.aimPosition, 18, time, "#ffdd78", {
+        createEffect("spark", endPosition, 24, time, "#ffdd78", {
           weaponId: strike.weapon.id,
         })
       );
@@ -773,8 +848,38 @@ function captureFrame(
   robots: RobotState[],
   projectiles: ProjectileState[],
   effects: EffectFrame[],
+  pendingStrikes: PendingStrike[],
   frames: FightFrame[]
 ) {
+  const frameEffects = [
+    ...effects,
+    ...pendingStrikes
+      .map((strike): EffectFrame | undefined => {
+        const attacker = robots.find((robot) => robot.id === strike.attackerId);
+        const target = robots.find((robot) => robot.id === strike.targetId);
+
+        if (!attacker || time > strike.resolvesAt) {
+          return undefined;
+        }
+
+        const tracking = time < strike.lockedAt && target?.alive;
+        const aimPosition = tracking ? target.position : strike.aimPosition;
+
+        return {
+          id: `${strike.id}-telegraph-${time}`,
+          type: "telegraph",
+          position: { ...attacker.position },
+          endPosition: { ...aimPosition },
+          weaponId: strike.weapon.id,
+          radius: 14,
+          age: Math.max(0, time - strike.createdAt),
+          duration: strike.resolvesAt - strike.createdAt,
+          color: "#ffdd78",
+        };
+      })
+      .filter((effect): effect is EffectFrame => effect !== undefined),
+  ];
+
   frames.push({
     time,
     robots: robots.map((robot) => ({
@@ -803,7 +908,7 @@ function captureFrame(
       radius: projectile.radius,
       age: projectile.age,
     })),
-    effects: effects.map((effect) => ({
+    effects: frameEffects.map((effect) => ({
       ...effect,
       position: { ...effect.position },
       endPosition: effect.endPosition ? { ...effect.endPosition } : undefined,

@@ -41,7 +41,7 @@ describe("simulateFight", () => {
       ray: ["beam"],
       missile: ["projectile", "spark"],
       boomerang: ["projectile", "trail"],
-      shotgun: ["cone"],
+      shotgun: ["projectile", "spark"],
       mine: ["mine", "explosion"],
       shield: ["shield"],
       emp: ["emp"],
