@@ -14,6 +14,7 @@ import type {
 
 const TOP_BAR_HEIGHT = 168;
 const ACTION_BAR_HEIGHT = 330;
+const EXPANDED_ACTION_BAR_HEIGHT = 470;
 const FIELD_PADDING_X = 64;
 const FIELD_GAP_TOP = 28;
 const FIELD_GAP_BOTTOM = 44;
@@ -42,7 +43,7 @@ export function drawFightFrame(
   frame: FightFrame,
   result: FightResult
 ) {
-  const layout = createLayout(context);
+  const layout = createLayout(context, frame.robots.length);
 
   context.clearRect(0, 0, layout.width, layout.height);
   drawBackground(context, layout, frame.time, result.config.classes);
@@ -64,10 +65,11 @@ export function drawFightFrame(
   drawWinnerCard(context, frame, result, layout);
 }
 
-function createLayout(context: CanvasRenderingContext2D): Layout {
+function createLayout(context: CanvasRenderingContext2D, robotCount: number): Layout {
   const width = context.canvas.width;
   const height = context.canvas.height;
-  const actionBarY = height - ACTION_BAR_HEIGHT;
+  const actionBarHeight = actionBarHeightForRobotCount(robotCount);
+  const actionBarY = height - actionBarHeight;
   const arenaY = TOP_BAR_HEIGHT + FIELD_GAP_TOP;
 
   return {
@@ -80,8 +82,12 @@ function createLayout(context: CanvasRenderingContext2D): Layout {
       width: width - FIELD_PADDING_X * 2,
       height: actionBarY - FIELD_GAP_BOTTOM - arenaY,
     },
-    actionBar: { x: 0, y: actionBarY, width, height: ACTION_BAR_HEIGHT },
+    actionBar: { x: 0, y: actionBarY, width, height: actionBarHeight },
   };
+}
+
+function actionBarHeightForRobotCount(robotCount: number): number {
+  return robotCount > 3 ? EXPANDED_ACTION_BAR_HEIGHT : ACTION_BAR_HEIGHT;
 }
 
 function drawBackground(context: CanvasRenderingContext2D, layout: Layout, time: number, classes: RobotClass[]) {
@@ -301,6 +307,16 @@ function drawEffects(
       continue;
     }
 
+    if (effect.type === "blade") {
+      drawBladeEffect(context, effect, position, layout.arena.width / arena.width, alpha);
+      continue;
+    }
+
+    if (effect.type === "damage-text") {
+      drawDamageToast(context, effect, position, alpha);
+      continue;
+    }
+
     if (effect.type === "mine") {
       drawThrownMine(context, effect, position, layout.arena.width / arena.width);
       continue;
@@ -460,6 +476,83 @@ function drawThrownMine(
     context.shadowBlur = 0;
   }
 
+  context.restore();
+}
+
+function drawBladeEffect(
+  context: CanvasRenderingContext2D,
+  effect: EffectFrame,
+  position: Vec2,
+  scale: number,
+  alpha: number
+) {
+  const angle = effect.spin ?? 0;
+  const radius = effect.radius * scale;
+  const holding = effect.variant === 0;
+
+  context.save();
+  context.translate(position.x, position.y);
+  context.rotate(angle);
+  context.globalAlpha = holding ? 0.7 : Math.max(0.25, alpha);
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.shadowBlur = holding ? 18 : 30;
+  context.shadowColor = "#ff2f55";
+
+  if (holding) {
+    context.strokeStyle = "#ff2f55";
+    context.lineWidth = 12;
+    context.beginPath();
+    context.moveTo(28, 0);
+    context.lineTo(radius * 0.95, 0);
+    context.stroke();
+    context.strokeStyle = "#ffffff";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.moveTo(42, 0);
+    context.lineTo(radius * 0.88, 0);
+    context.stroke();
+  } else {
+    context.strokeStyle = "rgba(255, 47, 85, 0.72)";
+    context.lineWidth = 28;
+    context.beginPath();
+    context.arc(0, 0, radius * 0.78, -1.65, 0.25);
+    context.stroke();
+    context.strokeStyle = "#ffffff";
+    context.lineWidth = 5;
+    context.beginPath();
+    context.arc(0, 0, radius * 0.78, -1.42, 0.1);
+    context.stroke();
+    context.strokeStyle = "#ff2f55";
+    context.lineWidth = 9;
+    context.beginPath();
+    context.moveTo(24, 0);
+    context.lineTo(radius, 0);
+    context.stroke();
+  }
+
+  context.restore();
+}
+
+function drawDamageToast(
+  context: CanvasRenderingContext2D,
+  effect: EffectFrame,
+  position: Vec2,
+  alpha: number
+) {
+  context.save();
+  context.globalAlpha = alpha;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.font = "900 24px Inter, system-ui, sans-serif";
+  context.lineWidth = 7;
+  context.strokeStyle = "rgba(7, 12, 17, 0.86)";
+  context.fillStyle = effect.color;
+  context.shadowBlur = 10;
+  context.shadowColor = effect.color;
+  const text = effect.label ?? "";
+  context.strokeText(text, position.x, position.y - 28);
+  context.fillText(text, position.x, position.y - 28);
   context.restore();
 }
 
@@ -636,6 +729,22 @@ function drawProjectiles(
       context.beginPath();
       context.arc(0, 0, radius, 0, Math.PI * 2);
       context.fill();
+      context.stroke();
+    } else if (projectile.weaponId === "blast-rifle") {
+      context.shadowBlur = 16;
+      context.shadowColor = "#ff4f7d";
+      context.fillStyle = "#ff4f7d";
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.roundRect(-radius * 1.2, -radius * 0.55, radius * 2.4, radius * 1.1, radius * 0.55);
+      context.fill();
+      context.stroke();
+      context.strokeStyle = "#ffb3c6";
+      context.lineWidth = 3;
+      context.beginPath();
+      context.moveTo(-radius * 1.7, 0);
+      context.lineTo(-radius * 2.8, 0);
       context.stroke();
     } else if (projectile.weaponId === "boomerang") {
       context.beginPath();
@@ -817,13 +926,19 @@ function drawActionBar(
   context.fillStyle = "rgba(7, 12, 17, 0.86)";
   context.fillRect(rect.x, rect.y, rect.width, rect.height);
 
-  const panelGap = 18;
-  const panelWidth = (rect.width - 58 - panelGap) / 2;
-  const panelHeight = rect.height - 40;
-  const panelY = rect.y + 22;
+  const grid = actionBarGrid(frame.robots.length);
+  const padX = grid.columns >= 3 ? 22 : 29;
+  const padY = grid.rows > 1 ? 18 : 22;
+  const panelGap = grid.columns >= 3 ? 14 : 18;
+  const rowGap = grid.rows > 1 ? 14 : 0;
+  const panelWidth = (rect.width - padX * 2 - panelGap * (grid.columns - 1)) / grid.columns;
+  const panelHeight = (rect.height - padY * 2 - rowGap * (grid.rows - 1)) / grid.rows;
 
-  frame.robots.slice(0, 2).forEach((robot, index) => {
-    const panelX = 29 + index * (panelWidth + panelGap);
+  frame.robots.forEach((robot, index) => {
+    const column = index % grid.columns;
+    const row = Math.floor(index / grid.columns);
+    const panelX = rect.x + padX + column * (panelWidth + panelGap);
+    const panelY = rect.y + padY + row * (panelHeight + rowGap);
     drawBotActionPanel(context, robot, result, frame.time, {
       x: panelX,
       y: panelY,
@@ -832,14 +947,20 @@ function drawActionBar(
     });
   });
 
-  if (frame.robots.length > 2) {
-    context.textAlign = "center";
-    context.fillStyle = "#9feee2";
-    context.font = "700 16px Inter, system-ui, sans-serif";
-    context.fillText(`${frame.robots.length - 2} more bots in telemetry`, rect.width / 2, rect.y + rect.height - 10);
+  context.restore();
+}
+
+function actionBarGrid(robotCount: number): { columns: number; rows: number } {
+  if (robotCount <= 2) {
+    return { columns: Math.max(1, robotCount), rows: 1 };
   }
 
-  context.restore();
+  if (robotCount === 3) {
+    return { columns: 3, rows: 1 };
+  }
+
+  const columns = Math.ceil(robotCount / 2);
+  return { columns, rows: 2 };
 }
 
 function drawBotActionPanel(
@@ -865,22 +986,30 @@ function drawBotActionPanel(
   context.fillStyle = robot.palette.body;
   context.fillRect(rect.x, rect.y, 9, rect.height);
 
-  const padX = rect.x + 24;
-  const innerWidth = rect.width - 48;
+  const compact = rect.width < 320 || rect.height < 250;
+  const sidePad = compact ? 16 : 24;
+  const padX = rect.x + sidePad;
+  const innerWidth = rect.width - sidePad * 2;
+  const headerY = rect.y + (compact ? 28 : 34);
+  const movementY = rect.y + (compact ? 42 : 50);
+  const movementHeight = compact ? Math.max(58, Math.min(76, rect.height * 0.34)) : 94;
+  const weaponY = movementY + movementHeight + (compact ? 10 : 14);
+  const weaponHeight = Math.max(44, rect.y + rect.height - weaponY - (compact ? 14 : 30));
 
   // Class name (left) and the current action readout (right) share the header
   // row — no "MOVEMENT" / "WEAPONS" labels above the boxes.
   context.textAlign = "left";
   context.fillStyle = "#fff7e6";
-  context.font = "900 24px Inter, system-ui, sans-serif";
-  context.fillText(getClassName(robot.classId), padX, rect.y + 34);
+  context.font = `900 ${compact ? 18 : 24}px Inter, system-ui, sans-serif`;
+  context.fillText(getClassName(robot.classId), padX, headerY, innerWidth * 0.58);
   context.textAlign = "right";
   context.fillStyle = "#9feee2";
-  context.font = "800 16px Inter, system-ui, sans-serif";
+  context.font = `800 ${compact ? 12 : 16}px Inter, system-ui, sans-serif`;
   context.fillText(
     robot.lastWeapon ? getWeaponName(robot.lastWeapon) : "",
     padX + innerWidth,
-    rect.y + 34
+    headerY,
+    innerWidth * 0.38
   );
 
   drawMovementSlot(
@@ -889,14 +1018,14 @@ function drawBotActionPanel(
     movement,
     robot,
     time,
-    { x: padX, y: rect.y + 50, width: innerWidth, height: 94 }
+    { x: padX, y: movementY, width: innerWidth, height: movementHeight }
   );
 
   drawWeaponList(context, config?.arsenal ?? [], weapon, robot.palette.glow, time, {
     x: padX,
-    y: rect.y + 158,
+    y: weaponY,
     width: innerWidth,
-    height: 96,
+    height: weaponHeight,
   });
 
   context.restore();
@@ -940,6 +1069,8 @@ function drawMovementSlot(
   const centerX = rect.x + rect.width / 2;
   const centerY = rect.y + rect.height / 2;
   const base = Math.floor(position);
+  const selectedFontSize = Math.max(16, Math.min(26, rect.height * 0.3, rect.width * 0.105));
+  const idleFontSize = Math.max(13, Math.min(20, selectedFontSize - 5));
   context.textAlign = "center";
   context.textBaseline = "middle";
   for (let offset = -1; offset <= 1; offset += 1) {
@@ -949,8 +1080,11 @@ function drawMovementSlot(
     const distance = Math.abs(slot - position);
     context.globalAlpha = Math.max(0, 1 - distance * 0.85);
     context.fillStyle = distance < 0.5 ? "#fff7e6" : "#7fb8c4";
-    context.font = distance < 0.5 ? "900 26px Inter, system-ui, sans-serif" : "800 20px Inter, system-ui, sans-serif";
-    context.fillText(formatMovement(list[wrapped]), centerX, y);
+    context.font =
+      distance < 0.5
+        ? `900 ${selectedFontSize}px Inter, system-ui, sans-serif`
+        : `800 ${idleFontSize}px Inter, system-ui, sans-serif`;
+    context.fillText(formatMovement(list[wrapped]), centerX, y, rect.width - 16);
   }
   context.globalAlpha = 1;
   context.textBaseline = "alphabetic";
@@ -991,7 +1125,7 @@ function drawWeaponList(
     ? Math.floor((age / SLOT_SPIN_SECONDS) * list.length * 4) % list.length
     : selectedIndex;
 
-  const gap = 10;
+  const gap = rect.width < 220 ? 6 : 10;
   const tileSize = Math.min(rect.height, (rect.width - gap * (list.length - 1)) / list.length);
   const totalWidth = tileSize * list.length + gap * (list.length - 1);
   let x = rect.x + (rect.width - totalWidth) / 2;
@@ -1050,7 +1184,7 @@ function drawWinnerCard(
 }
 
 export function drawIntroCard(context: CanvasRenderingContext2D, names: string[]) {
-  const layout = createLayout(context);
+  const layout = createLayout(context, names.length);
   const bandY = layout.arena.y + layout.arena.height * 0.35;
 
   context.save();
@@ -1079,6 +1213,10 @@ function projectileColor(weaponId: WeaponId): string {
       return "#ff8f4f";
     case "boomerang":
       return "#d7f8ff";
+    case "blade":
+      return "#ff2f55";
+    case "blast-rifle":
+      return "#ff4f7d";
     case "mine":
       return "#f6c85f";
     case "emp":
@@ -1146,6 +1284,43 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
       context.strokeStyle = "#ffffff";
       context.lineWidth = 3;
       context.stroke();
+      break;
+    case "blade":
+      context.rotate(-0.55);
+      context.strokeStyle = "#ff2f55";
+      context.lineWidth = 8;
+      context.beginPath();
+      context.moveTo(-23, 9);
+      context.lineTo(18, -16);
+      context.stroke();
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.moveTo(-10, 1);
+      context.lineTo(14, -13);
+      context.stroke();
+      context.fillStyle = "#2b1219";
+      context.fillRect(-25, 6, 12, 7);
+      break;
+    case "blast-rifle":
+      context.lineWidth = 4;
+      context.beginPath();
+      context.moveTo(-23, 6);
+      context.lineTo(6, -7);
+      context.lineTo(23, -5);
+      context.lineTo(9, 5);
+      context.lineTo(-2, 14);
+      context.closePath();
+      context.fill();
+      context.stroke();
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 2;
+      for (let index = 0; index < 3; index += 1) {
+        context.beginPath();
+        context.moveTo(8 + index * 7, -13 + index * 2);
+        context.lineTo(17 + index * 5, -17 + index * 2);
+        context.stroke();
+      }
       break;
     case "shotgun":
       context.globalAlpha = 0.85;

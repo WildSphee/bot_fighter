@@ -84,6 +84,8 @@ const WEAPON_COLORS: Record<string, string> = {
   ray: "#a9fffd",
   missile: "#ff8f4f",
   boomerang: "#d7f8ff",
+  blade: "#ff2f55",
+  "blast-rifle": "#ff4f7d",
   shotgun: "#ffd166",
   mine: "#f6c85f",
   shield: "#7ef7c7",
@@ -151,6 +153,7 @@ export default function App() {
   );
   const result = useMemo(() => simulateFight(config), [config]);
   const frame = result.frames[Math.min(frameIndex, result.frames.length - 1)] ?? result.frames[0];
+  const finalFrame = result.frames[result.frames.length - 1] ?? result.frames[0];
   const winner = result.config.robots.find((robot) => robot.id === result.winnerId);
   const recentEvents = result.events
     .filter((event) => event.type === "weapon" || event.type === "hit" || event.type === "winner")
@@ -982,11 +985,12 @@ export default function App() {
           <section className="stat-grid">
             {syncedRobots.map((robot) => {
               const robotFrame = frame.robots.find((candidate) => candidate.id === robot.id);
+              const finalRobotFrame = finalFrame.robots.find((candidate) => candidate.id === robot.id);
               return (
                 <div className="stat-box" key={robot.id}>
                   <span>{getClassName(robot.classId, classes)}</span>
                   <strong>{Math.round(robotFrame?.hp ?? 0)} HP</strong>
-                  <small>{Math.round(result.damageByRobot[robot.id] ?? 0)} damage</small>
+                  <small>{Math.round(finalRobotFrame?.hp ?? 0)} health remaining</small>
                 </div>
               );
             })}

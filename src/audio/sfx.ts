@@ -69,22 +69,45 @@ function playSound(
       break;
 
     case "boomerang":
-      // Energy boomerang: throw shimmer + returning wobble.
-      tone(context, output, when, 0.13, 520, 1320, "triangle", 0.06);
-      tone(context, output, when + 0.1, 0.18, 1320, 620, "sine", 0.055);
-      tone(context, output, when + 0.2, 0.2, 680, 1180, "triangle", 0.04);
-      tone(context, output, when + 0.32, 0.18, 1180, 480, "sine", 0.035);
-      noiseBurst(context, output, when + 0.02, 0.12, 2600, 0.035);
-      noiseBurst(context, output, when + 0.24, 0.16, 1800, 0.025);
+      // Energy boomerang: percussive throw, airy spin, returning shimmer.
+      noiseBurst(context, output, when, 0.035, 4200, 0.12);
+      tone(context, output, when, 0.1, 260, 620, "sawtooth", 0.07);
+      tone(context, output, when + 0.035, 0.24, 740, 1760, "triangle", 0.06);
+      tone(context, output, when + 0.12, 0.34, 1760, 540, "sine", 0.055);
+      tone(context, output, when + 0.28, 0.22, 920, 1460, "triangle", 0.04);
+      noiseBurst(context, output, when + 0.18, 0.28, 1800, 0.04);
+      break;
+
+    case "blade":
+      // Neon blade: unsheathe hum, circular slash, tiny retract click.
+      tone(context, output, when, 0.22, 180, 920, "sawtooth", 0.075);
+      tone(context, output, when + 0.18, 0.74, 720, 1040, "sine", 0.045);
+      noiseBurst(context, output, when + 0.95, 0.08, 5200, 0.22);
+      tone(context, output, when + 0.95, 0.2, 1800, 360, "square", 0.09);
+      tone(context, output, when + 1.1, 0.22, 440, 120, "triangle", 0.055);
+      noiseBurst(context, output, when + 1.65, 0.035, 2600, 0.08);
+      break;
+
+    case "blast-rifle":
+      // Three-shot laser rifle burst: slow heavy bolts with unstable EDM bite.
+      for (let index = 0; index < 3; index += 1) {
+        const shotAt = when + index * 0.12;
+        noiseBurst(context, output, shotAt, 0.026, 7600, 0.15);
+        tone(context, output, shotAt, 0.09, 2100, 540, "square", 0.075);
+        tone(context, output, shotAt + 0.018, 0.12, 920, 220, "sawtooth", 0.06);
+      }
+      tone(context, output, when, 0.5, 130, 46, "triangle", 0.08);
       break;
 
     case "shotgun":
-      // Robotic scatter blast: multiple staggered cracks + low kick.
-      noiseBurst(context, output, when, 0.045, 5200, 0.26);
-      noiseBurst(context, output, when + 0.018, 0.05, 3800, 0.18);
-      noiseBurst(context, output, when + 0.04, 0.06, 2400, 0.13);
-      tone(context, output, when, 0.13, 180, 70, "sawtooth", 0.13);
-      tone(context, output, when + 0.015, 0.09, 90, 42, "triangle", 0.12);
+      // EDM scatter cannon: hard pump transient, pellet cracks, bright synth tail.
+      noiseBurst(context, output, when, 0.032, 8200, 0.34);
+      noiseBurst(context, output, when + 0.018, 0.04, 5600, 0.24);
+      noiseBurst(context, output, when + 0.045, 0.055, 3600, 0.16);
+      tone(context, output, when, 0.16, 230, 54, "sawtooth", 0.15);
+      tone(context, output, when + 0.015, 0.1, 96, 38, "triangle", 0.12);
+      tone(context, output, when + 0.052, 0.18, 1800, 480, "square", 0.045);
+      tone(context, output, when + 0.1, 0.22, 920, 1320, "sine", 0.03);
       break;
 
     case "mine":
@@ -166,15 +189,20 @@ function playSound(
       break;
 
     case "emp":
-      // Electric EMP: high-voltage snap, unstable buzz, low power drain.
-      noiseBurst(context, output, when, 0.035, 7600, 0.2);
-      tone(context, output, when, 0.08, 2400, 360, "square", 0.075);
-      tone(context, output, when + 0.04, 0.11, 1800, 460, "square", 0.06);
-      tone(context, output, when + 0.09, 0.12, 3200, 280, "square", 0.05);
-      noiseBurst(context, output, when + 0.08, 0.16, 4200, 0.11);
-      noiseBurst(context, output, when + 0.2, 0.2, 2200, 0.08);
-      tone(context, output, when, 0.5, 90, 38, "sawtooth", 0.12);
-      tone(context, output, when + 0.16, 0.34, 54, 28, "triangle", 0.08);
+      // Electric EMP: high-voltage snap, crackling arcs, stepped power drain.
+      noiseBurst(context, output, when, 0.028, 9200, 0.28);
+      noiseBurst(context, output, when + 0.018, 0.05, 6400, 0.2);
+      tone(context, output, when, 0.07, 3600, 520, "square", 0.095);
+      tone(context, output, when + 0.025, 0.08, 5200, 760, "sawtooth", 0.06);
+      tone(context, output, when + 0.055, 0.09, 2800, 420, "square", 0.075);
+      tone(context, output, when + 0.11, 0.08, 4600, 620, "square", 0.055);
+      noiseBurst(context, output, when + 0.07, 0.2, 5200, 0.16);
+      noiseBurst(context, output, when + 0.18, 0.18, 3600, 0.12);
+      noiseBurst(context, output, when + 0.32, 0.16, 2400, 0.09);
+      tone(context, output, when, 0.62, 120, 34, "sawtooth", 0.14);
+      tone(context, output, when + 0.12, 0.14, 72, 52, "square", 0.07);
+      tone(context, output, when + 0.26, 0.14, 58, 42, "square", 0.06);
+      tone(context, output, when + 0.4, 0.18, 48, 24, "triangle", 0.08);
       break;
 
     case "winner":

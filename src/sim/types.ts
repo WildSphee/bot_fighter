@@ -49,6 +49,8 @@ export type WeaponId =
   | "ray"
   | "missile"
   | "boomerang"
+  | "blade"
+  | "blast-rifle"
   | "shotgun"
   | "mine"
   | "shield"
@@ -151,6 +153,8 @@ export type EffectFrame = {
     | "spark"
     | "mine"
     | "bit"
+    | "blade"
+    | "damage-text"
     | "telegraph";
   position: Vec2;
   endPosition?: Vec2;
@@ -160,6 +164,7 @@ export type EffectFrame = {
   age: number;
   duration: number;
   color: string;
+  label?: string;
   spin?: number;
   variant?: number;
 };
@@ -177,6 +182,8 @@ export type SoundEventType =
   | "laser"
   | "ray"
   | "boomerang"
+  | "blade"
+  | "blast-rifle"
   | "shotgun"
   | "mine"
   | "railgun"
