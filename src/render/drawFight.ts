@@ -151,8 +151,8 @@ function drawTopRobotStatus(
   const textX = alignRight ? rect.x + rect.width : rect.x;
 
   context.textAlign = alignRight ? "right" : "left";
-    context.fillStyle = "rgba(255,255,255,0.16)";
-    context.fillRect(rect.x, rect.y + rect.height - 42, rect.width, 24);
+  context.fillStyle = "rgba(255,255,255,0.16)";
+  context.fillRect(rect.x, rect.y + rect.height - 42, rect.width, 24);
   context.fillStyle = robot.palette.body;
   context.fillRect(rect.x, rect.y + rect.height - 42, rect.width * hpRatio, 24);
   context.fillStyle = robot.palette.glow;
@@ -221,20 +221,126 @@ function drawEffects(
   for (const effect of frame.effects) {
     const position = mapPoint(effect.position, arena, layout.arena);
     const alpha = Math.max(0, 1 - effect.age / effect.duration);
+
+    if (effect.type === "beam" && effect.endPosition) {
+      drawBeamEffect(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena), alpha);
+      continue;
+    }
+
+    if (effect.type === "cone" && effect.endPosition) {
+      drawConeEffect(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena), alpha);
+      continue;
+    }
+
     context.save();
-    context.globalAlpha = alpha * 0.75;
+    context.globalAlpha = alpha * (effect.type === "muzzle" || effect.type === "spark" ? 0.95 : 0.75);
     context.strokeStyle = effect.color;
     context.fillStyle = effect.color;
-    context.lineWidth = effect.type === "trail" ? 4 : 7;
+    context.lineWidth = effect.type === "trail" || effect.type === "spark" ? 4 : 7;
     context.beginPath();
-    context.arc(position.x, position.y, effect.radius * 0.68 * (1 + effect.age), 0, Math.PI * 2);
-    if (effect.type === "shield" || effect.type === "emp") {
+    const radius = effect.radius * 0.68 * (1 + effect.age);
+    context.arc(position.x, position.y, radius, 0, Math.PI * 2);
+    if (effect.type === "shield" || effect.type === "emp" || effect.type === "mine") {
       context.stroke();
+    } else if (effect.type === "muzzle") {
+      context.fill();
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 2;
+      context.stroke();
+    } else if (effect.type === "spark" || effect.type === "trail") {
+      drawParticleStar(context, position, Math.max(4, radius), effect.age);
     } else {
       context.fill();
     }
     context.restore();
   }
+}
+
+function drawBeamEffect(
+  context: CanvasRenderingContext2D,
+  effect: { color: string; radius: number; weaponId?: WeaponId },
+  start: Vec2,
+  end: Vec2,
+  alpha: number
+) {
+  const isRailgun = effect.weaponId === "railgun";
+  const isRay = effect.weaponId === "ray";
+  const beamColor = isRailgun ? "#ffdd78" : isRay ? "#a9fffd" : effect.color;
+
+  context.save();
+  context.globalAlpha = alpha;
+  context.lineCap = "round";
+  context.strokeStyle = beamColor;
+  context.shadowBlur = isRailgun ? 26 : 18;
+  context.shadowColor = beamColor;
+  context.lineWidth = isRailgun ? 16 : 9;
+  context.beginPath();
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.stroke();
+
+  context.shadowBlur = 0;
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = isRailgun ? 4 : 2;
+  context.beginPath();
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.stroke();
+  context.restore();
+}
+
+function drawConeEffect(
+  context: CanvasRenderingContext2D,
+  effect: { color: string; radius: number },
+  start: Vec2,
+  end: Vec2,
+  alpha: number
+) {
+  const direction = normalizeScreen(subScreen(end, start));
+  const side = { x: -direction.y, y: direction.x };
+  const coneLength = Math.min(260, distanceScreen(start, end));
+  const center = {
+    x: start.x + direction.x * coneLength,
+    y: start.y + direction.y * coneLength,
+  };
+  const spread = Math.max(54, effect.radius);
+  const left = { x: center.x + side.x * spread, y: center.y + side.y * spread };
+  const right = { x: center.x - side.x * spread, y: center.y - side.y * spread };
+
+  context.save();
+  context.globalAlpha = alpha * 0.7;
+  context.fillStyle = effect.color;
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(start.x, start.y);
+  context.lineTo(left.x, left.y);
+  context.lineTo(right.x, right.y);
+  context.closePath();
+  context.fill();
+  context.stroke();
+  context.restore();
+}
+
+function drawParticleStar(
+  context: CanvasRenderingContext2D,
+  position: Vec2,
+  radius: number,
+  age: number
+) {
+  context.beginPath();
+  for (let index = 0; index < 6; index += 1) {
+    const angle = age * 9 + (Math.PI * 2 * index) / 6;
+    const x = position.x + Math.cos(angle) * radius;
+    const y = position.y + Math.sin(angle) * radius;
+    if (index === 0) {
+      context.moveTo(x, y);
+    } else {
+      context.lineTo(x, y);
+    }
+  }
+  context.closePath();
+  context.fill();
 }
 
 function drawProjectiles(
@@ -245,21 +351,47 @@ function drawProjectiles(
 ) {
   for (const projectile of frame.projectiles) {
     const position = mapPoint(projectile.position, arena, layout.arena);
-    const radius = Math.max(7, projectile.radius * 0.7);
+    const radius = Math.max(projectile.weaponId === "missile" ? 12 : 8, projectile.radius * 0.75);
+    const angle = Math.atan2(projectile.velocity.y, projectile.velocity.x);
     context.save();
     context.translate(position.x, position.y);
-    context.rotate(projectile.age * 9);
-    context.fillStyle = projectile.weaponId === "missile" ? "#ff8f4f" : "#a9fffd";
+    context.rotate(projectile.weaponId === "boomerang" ? projectile.age * 13 : angle);
+    context.fillStyle = projectileColor(projectile.weaponId);
     context.strokeStyle = "#ffffff";
     context.lineWidth = 3;
-    context.beginPath();
-    context.moveTo(radius, 0);
-    context.lineTo(-radius * 0.7, -radius * 0.65);
-    context.lineTo(-radius * 0.3, 0);
-    context.lineTo(-radius * 0.7, radius * 0.65);
-    context.closePath();
-    context.fill();
-    context.stroke();
+
+    if (projectile.weaponId === "boomerang") {
+      context.beginPath();
+      context.arc(0, 0, radius * 1.15, Math.PI * 0.2, Math.PI * 1.55);
+      context.lineWidth = 7;
+      context.strokeStyle = "#d7f8ff";
+      context.stroke();
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 2;
+      context.stroke();
+    } else {
+      context.shadowBlur = projectile.weaponId === "missile" ? 18 : 10;
+      context.shadowColor = projectileColor(projectile.weaponId);
+      context.beginPath();
+      context.moveTo(radius * 1.45, 0);
+      context.lineTo(-radius * 0.9, -radius * 0.72);
+      context.lineTo(-radius * 0.36, 0);
+      context.lineTo(-radius * 0.9, radius * 0.72);
+      context.closePath();
+      context.fill();
+      context.stroke();
+
+      if (projectile.weaponId === "missile") {
+        context.fillStyle = "#ffdd78";
+        context.beginPath();
+        context.moveTo(-radius * 0.85, 0);
+        context.lineTo(-radius * 1.65, -radius * 0.44);
+        context.lineTo(-radius * 1.45, 0);
+        context.lineTo(-radius * 1.65, radius * 0.44);
+        context.closePath();
+        context.fill();
+      }
+    }
     context.restore();
   }
 }
@@ -534,6 +666,41 @@ function mapPoint(point: Vec2, arena: ArenaConfig, rect: Rect): Vec2 {
     x: rect.x + (point.x / arena.width) * rect.width,
     y: rect.y + (point.y / arena.height) * rect.height,
   };
+}
+
+function projectileColor(weaponId: WeaponId): string {
+  switch (weaponId) {
+    case "missile":
+      return "#ff8f4f";
+    case "boomerang":
+      return "#d7f8ff";
+    case "mine":
+      return "#f6c85f";
+    case "emp":
+      return "#a9fffd";
+    case "railgun":
+      return "#ffdd78";
+    case "shotgun":
+      return "#ffd166";
+    case "shield":
+      return "#7ef7c7";
+    case "ray":
+    default:
+      return "#a9fffd";
+  }
+}
+
+function subScreen(a: Vec2, b: Vec2): Vec2 {
+  return { x: a.x - b.x, y: a.y - b.y };
+}
+
+function distanceScreen(a: Vec2, b: Vec2): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function normalizeScreen(vector: Vec2): Vec2 {
+  const size = Math.hypot(vector.x, vector.y);
+  return size > 0.001 ? { x: vector.x / size, y: vector.y / size } : { x: 1, y: 0 };
 }
 
 function clipRect(context: CanvasRenderingContext2D, rect: Rect) {

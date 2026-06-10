@@ -109,14 +109,27 @@ export type ProjectileFrame = {
   ownerId: string;
   weaponId: WeaponId;
   position: Vec2;
+  velocity: Vec2;
   radius: number;
   age: number;
 };
 
 export type EffectFrame = {
   id: string;
-  type: "hit" | "explosion" | "shield" | "emp" | "trail";
+  type:
+    | "hit"
+    | "explosion"
+    | "shield"
+    | "emp"
+    | "trail"
+    | "beam"
+    | "cone"
+    | "muzzle"
+    | "spark"
+    | "mine";
   position: Vec2;
+  endPosition?: Vec2;
+  weaponId?: WeaponId;
   radius: number;
   age: number;
   duration: number;

@@ -35,6 +35,8 @@ type ProjectileState = ProjectileFrame & {
   targetId?: string;
   homing: number;
   knockback: number;
+  curve: number;
+  lastTrailAt: number;
 };
 
 const ROBOT_RADIUS = 36;
@@ -310,6 +312,13 @@ function fireWeapon(input: {
     return;
   }
 
+  const direction = normalize(sub(target.position, attacker.position));
+  effects.push(
+    createEffect("muzzle", add(attacker.position, mul(direction, ROBOT_RADIUS + 8)), weapon.radius + 16, time, attacker.palette.glow, {
+      weaponId: weapon.id,
+    })
+  );
+
   events.push({
     type: "weapon",
     time,
@@ -323,35 +332,55 @@ function fireWeapon(input: {
 
   if (weapon.kind === "defense") {
     attacker.shield = clamp(attacker.shield + 28, 0, attacker.maxShield + 34);
-    effects.push(createEffect("shield", attacker.position, weapon.radius, time, attacker.palette.glow));
+    effects.push(
+      createEffect("shield", attacker.position, weapon.radius + 16, time, attacker.palette.glow, {
+        weaponId: weapon.id,
+      })
+    );
     return;
   }
 
   if (weapon.kind === "projectile") {
-    const direction = normalize(sub(target.position, attacker.position));
-    const wobble = (rngNext() - 0.5) * 0.22;
+    const arcSign = rngNext() > 0.5 ? 1 : -1;
+    const side = rotate90(direction, arcSign);
+    const arcStrength =
+      weapon.id === "missile" ? 170 + rngNext() * 120 : weapon.id === "boomerang" ? 105 : 45;
+    const speed = weapon.projectileSpeed * (weapon.id === "missile" ? 1.08 : 1);
     projectiles.push({
       id: `${weapon.id}-${attacker.id}-${time.toFixed(2)}`,
       ownerId: attacker.id,
       targetId: target.id,
       weaponId: weapon.id,
       position: add(attacker.position, mul(direction, ROBOT_RADIUS)),
-      velocity: {
-        x: direction.x * weapon.projectileSpeed + Math.cos(wobble) * 12,
-        y: direction.y * weapon.projectileSpeed + Math.sin(wobble) * 12,
-      },
+      velocity: add(mul(direction, speed), mul(side, arcStrength)),
       damage: weapon.damage,
       radius: weapon.radius,
       homing: weapon.homing,
       knockback: weapon.knockback,
+      curve: arcSign * (weapon.id === "missile" ? 235 : weapon.id === "boomerang" ? -155 : 65),
+      lastTrailAt: time,
       age: 0,
-      expiresAt: time + 4.2,
+      expiresAt: time + (weapon.id === "missile" ? 3 : 4.2),
     });
+    effects.push(
+      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), weapon.radius + 24, time, "#ffdd78", {
+        weaponId: weapon.id,
+      })
+    );
     return;
   }
 
   if (weapon.kind === "field") {
-    effects.push(createEffect("emp", attacker.position, weapon.radius, time, "#f6c85f"));
+    effects.push(
+      createEffect("mine", add(attacker.position, mul(direction, -24)), weapon.radius + 28, time, "#f6c85f", {
+        weaponId: weapon.id,
+      })
+    );
+    effects.push(
+      createEffect("explosion", attacker.position, weapon.radius + 52, time + 0.1, "#ff8f4f", {
+        weaponId: weapon.id,
+      })
+    );
     for (const robot of input.robots) {
       if (robot.id !== attacker.id && robot.alive && distance(robot.position, attacker.position) < weapon.radius + 70) {
         applyDamage(attacker, robot, weapon, time, events, damageByRobot);
@@ -360,10 +389,36 @@ function fireWeapon(input: {
     return;
   }
 
+  if (weapon.id === "shotgun") {
+    effects.push(
+      createEffect("cone", attacker.position, 96, time, "#ffd166", {
+        endPosition: target.position,
+        weaponId: weapon.id,
+      })
+    );
+  } else if (weapon.id === "emp") {
+    effects.push(
+      createEffect("emp", attacker.position, weapon.radius + 96, time, "#a9fffd", {
+        weaponId: weapon.id,
+      })
+    );
+  } else {
+    effects.push(
+      createEffect("beam", attacker.position, weapon.id === "railgun" ? 18 : 10, time, weapon.id === "railgun" ? "#ffdd78" : attacker.palette.glow, {
+        endPosition: target.position,
+        weaponId: weapon.id,
+      })
+    );
+  }
+
   const accuracy = weapon.id === "railgun" ? 0.86 : 0.78;
   if (rngNext() <= accuracy) {
     applyDamage(attacker, target, weapon, time, events, damageByRobot);
-    effects.push(createEffect(weapon.id === "emp" ? "emp" : "hit", target.position, weapon.radius, time, attacker.palette.glow));
+    effects.push(
+      createEffect(weapon.id === "emp" ? "emp" : "hit", target.position, weapon.radius + 12, time, attacker.palette.glow, {
+        weaponId: weapon.id,
+      })
+    );
   }
 }
 
@@ -383,13 +438,35 @@ function updateProjectiles(
 
     projectile.age += dt;
 
+    if (projectile.curve !== 0 && projectile.age < 1.15) {
+      const side = rotate90(normalize(projectile.velocity), projectile.curve > 0 ? 1 : -1);
+      projectile.velocity = add(
+        projectile.velocity,
+        mul(side, Math.abs(projectile.curve) * dt * (1 - projectile.age / 1.15))
+      );
+    }
+
     if (target?.alive && projectile.homing > 0) {
       const desired = normalize(sub(target.position, projectile.position));
-      projectile.velocity = normalize(add(projectile.velocity, mul(desired, projectile.homing * 420)));
+      projectile.velocity = normalize(add(projectile.velocity, mul(desired, projectile.homing * 720)));
       projectile.velocity = mul(projectile.velocity, getWeapon(projectile.weaponId).projectileSpeed);
     }
 
     projectile.position = add(projectile.position, mul(projectile.velocity, dt));
+
+    if (time - projectile.lastTrailAt >= 0.045) {
+      projectile.lastTrailAt = time;
+      effects.push(
+        createEffect(
+          projectile.weaponId === "missile" ? "spark" : "trail",
+          projectile.position,
+          projectile.weaponId === "missile" ? projectile.radius + 8 : projectile.radius,
+          time,
+          projectile.weaponId === "missile" ? "#ff8f4f" : "#a9fffd",
+          { weaponId: projectile.weaponId }
+        )
+      );
+    }
 
     const hitRobot = robots.find(
       (robot) =>
@@ -400,7 +477,11 @@ function updateProjectiles(
 
     if (owner && hitRobot) {
       applyDamage(owner, hitRobot, getWeapon(projectile.weaponId), time, events, damageByRobot);
-      effects.push(createEffect("explosion", projectile.position, projectile.radius + 24, time, owner.palette.glow));
+      effects.push(
+        createEffect("explosion", projectile.position, projectile.radius + 32, time, owner.palette.glow, {
+          weaponId: projectile.weaponId,
+        })
+      );
       projectiles.splice(index, 1);
       continue;
     }
@@ -476,15 +557,34 @@ function createEffect(
   position: Vec2,
   radius: number,
   time: number,
-  color: string
+  color: string,
+  options: {
+    endPosition?: Vec2;
+    weaponId?: WeaponId;
+  } = {}
 ): EffectFrame {
+  const durationByType: Record<EffectFrame["type"], number> = {
+    beam: 0.24,
+    cone: 0.32,
+    emp: 0.44,
+    explosion: 0.55,
+    hit: 0.3,
+    mine: 0.65,
+    muzzle: 0.22,
+    shield: 0.38,
+    spark: 0.28,
+    trail: 0.34,
+  };
+
   return {
-    id: `${type}-${time}`,
+    id: `${type}-${options.weaponId ?? "fx"}-${time}`,
     type,
     position: { ...position },
+    endPosition: options.endPosition ? { ...options.endPosition } : undefined,
+    weaponId: options.weaponId,
     radius,
     age: 0,
-    duration: type === "explosion" ? 0.55 : 0.3,
+    duration: durationByType[type],
     color,
   };
 }
@@ -520,6 +620,7 @@ function captureFrame(
       ownerId: projectile.ownerId,
       weaponId: projectile.weaponId,
       position: { ...projectile.position },
+      velocity: { ...projectile.velocity },
       radius: projectile.radius,
       age: projectile.age,
     })),
