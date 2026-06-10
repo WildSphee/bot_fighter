@@ -60,6 +60,19 @@ const HISTORY_KEY = "bot-fighter-history";
 const CLASS_PROFILE_KEY = "bot-fighter-class-profiles";
 const MOVEMENT_PROFILE_KEY = "bot-fighter-movement-profiles";
 const WEAPON_PROFILE_KEY = "bot-fighter-weapon-profiles";
+const SETTINGS_KEY = "bot-fighter-settings";
+
+type GameSettings = {
+  moveInterval: number;
+  weaponInterval: number;
+  centerGravity: number;
+};
+
+const DEFAULT_SETTINGS: GameSettings = {
+  moveInterval: 1,
+  weaponInterval: 2,
+  centerGravity: 0.35,
+};
 
 const MOVEMENT_PROFILE_LABELS: Record<MovementProfileId, string> = {
   balanced: "Balanced",
@@ -100,6 +113,7 @@ export default function App() {
   );
   const [maxDuration, setMaxDuration] = useState(45);
   const [speed, setSpeed] = useState(1);
+  const [settings, setSettings] = useState<GameSettings>(() => readSettings());
   const [activeTab, setActiveTab] = useState<Tab>("setup");
   const [isPlaying, setIsPlaying] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -125,12 +139,15 @@ export default function App() {
       ...createDefaultFightConfig(seed),
       seed,
       maxDuration,
+      moveInterval: settings.moveInterval,
+      weaponInterval: settings.weaponInterval,
+      centerGravity: settings.centerGravity,
       classes,
       movementProfiles,
       weapons,
       robots: syncedRobots,
     }),
-    [classes, maxDuration, movementProfiles, seed, syncedRobots, weapons]
+    [classes, maxDuration, movementProfiles, seed, settings, syncedRobots, weapons]
   );
   const result = useMemo(() => simulateFight(config), [config]);
   const frame = result.frames[Math.min(frameIndex, result.frames.length - 1)] ?? result.frames[0];
@@ -222,12 +239,13 @@ export default function App() {
     window.localStorage.setItem(CLASS_PROFILE_KEY, JSON.stringify(classes));
     window.localStorage.setItem(MOVEMENT_PROFILE_KEY, JSON.stringify(movementProfiles));
     window.localStorage.setItem(WEAPON_PROFILE_KEY, JSON.stringify(weapons));
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     void fetch("http://localhost:8787/api/class-profiles", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classes, movementProfiles, weapons }),
+      body: JSON.stringify({ classes, movementProfiles, weapons, settings }),
     }).catch(() => undefined);
-  }, [classes, movementProfiles, weapons]);
+  }, [classes, movementProfiles, settings, weapons]);
 
   useEffect(() => {
     void fetch("http://localhost:8787/api/class-profiles")
@@ -235,7 +253,12 @@ export default function App() {
       .then(
         (
           payload:
-            | { classes?: RobotClass[]; movementProfiles?: MovementProfileMap; weapons?: WeaponDefinition[] }
+            | {
+                classes?: RobotClass[];
+                movementProfiles?: MovementProfileMap;
+                weapons?: WeaponDefinition[];
+                settings?: Partial<GameSettings>;
+              }
             | undefined
         ) => {
         if (payload?.classes?.length) {
@@ -247,12 +270,19 @@ export default function App() {
         if (payload?.weapons?.length) {
           setWeapons(payload.weapons);
         }
+        if (payload?.settings) {
+          setSettings((current) => ({ ...current, ...payload.settings }));
+        }
       })
       .catch(() => undefined);
   }, []);
 
   function updateRobot(robotId: string, updater: (robot: RobotConfig) => RobotConfig) {
     setRobots((current) => current.map((robot) => (robot.id === robotId ? updater(robot) : robot)));
+  }
+
+  function updateSetting<K extends keyof GameSettings>(key: K, value: GameSettings[K]) {
+    setSettings((current) => ({ ...current, [key]: value }));
   }
 
   function updateClass(classId: string, updater: (robotClass: RobotClass) => RobotClass) {
@@ -514,10 +544,10 @@ export default function App() {
                   />
                 </label>
                 <label className="field">
-                  <span>Speed</span>
+                  <span>Speed · {speed.toFixed(2)}x</span>
                   <input
                     type="range"
-                    min={0.25}
+                    min={0.5}
                     max={3}
                     step={0.25}
                     value={speed}
@@ -525,6 +555,47 @@ export default function App() {
                   />
                 </label>
               </div>
+
+              <section className="robot-editor">
+                <div className="robot-editor__header">
+                  <span style={{ background: "#2fffc8" }} />
+                  <strong>Match Tuning</strong>
+                </div>
+                <label className="field">
+                  <span>Movement delay · {settings.moveInterval.toFixed(2)}s</span>
+                  <input
+                    type="range"
+                    min={0.25}
+                    max={3}
+                    step={0.25}
+                    value={settings.moveInterval}
+                    onChange={(event) => updateSetting("moveInterval", Number(event.target.value))}
+                  />
+                </label>
+                <label className="field">
+                  <span>Firing delay · {settings.weaponInterval.toFixed(2)}s</span>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={5}
+                    step={0.25}
+                    value={settings.weaponInterval}
+                    onChange={(event) => updateSetting("weaponInterval", Number(event.target.value))}
+                  />
+                </label>
+                <label className="field">
+                  <span>Center gravity · {Math.round(settings.centerGravity * 100)}%</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={settings.centerGravity}
+                    onChange={(event) => updateSetting("centerGravity", Number(event.target.value))}
+                  />
+                </label>
+                <p className="muted">Tuning autosaves to the backend on every change.</p>
+              </section>
 
               {robots.map((robot, index) => (
                 <section className="robot-editor" key={robot.id}>
@@ -946,6 +1017,18 @@ function readWeaponProfiles(): WeaponDefinition[] {
     });
   } catch {
     return base;
+  }
+}
+
+function readSettings(): GameSettings {
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_KEY);
+    if (!raw) {
+      return { ...DEFAULT_SETTINGS };
+    }
+    return { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<GameSettings>) };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
   }
 }
 

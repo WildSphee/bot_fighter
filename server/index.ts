@@ -20,9 +20,16 @@ import type {
 
 const PORT = Number(process.env.API_PORT ?? 8787);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
+type GameSettings = {
+  moveInterval: number;
+  weaponInterval: number;
+  centerGravity: number;
+};
+
 let classProfiles = cloneClassProfiles(ROBOT_CLASSES);
 let movementProfiles = cloneMovementProfiles();
 let weaponProfiles = cloneWeapons();
+let settings: GameSettings = { moveInterval: 1, weaponInterval: 2, centerGravity: 0.35 };
 
 const server = createServer(async (request, response) => {
   setCorsHeaders(response);
@@ -63,7 +70,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/class-profiles") {
-      sendJson(response, 200, { classes: classProfiles, movementProfiles, weapons: weaponProfiles });
+      sendJson(response, 200, { classes: classProfiles, movementProfiles, weapons: weaponProfiles, settings });
       return;
     }
 
@@ -72,13 +79,14 @@ const server = createServer(async (request, response) => {
         classes?: RobotClass[];
         movementProfiles?: MovementProfileMap;
         weapons?: WeaponDefinition[];
+        settings?: Partial<GameSettings>;
       }>(request);
       if (body.classes && !body.classes.length) {
         sendJson(response, 400, { error: "classes must be a non-empty array" });
         return;
       }
-      if (!body.classes && !body.movementProfiles && !body.weapons) {
-        sendJson(response, 400, { error: "classes, movementProfiles, or weapons must be provided" });
+      if (!body.classes && !body.movementProfiles && !body.weapons && !body.settings) {
+        sendJson(response, 400, { error: "classes, movementProfiles, weapons, or settings must be provided" });
         return;
       }
 
@@ -91,8 +99,11 @@ const server = createServer(async (request, response) => {
       if (body.weapons?.length) {
         weaponProfiles = cloneWeapons(body.weapons);
       }
+      if (body.settings) {
+        settings = mergeSettings(settings, body.settings);
+      }
 
-      sendJson(response, 200, { classes: classProfiles, movementProfiles, weapons: weaponProfiles });
+      sendJson(response, 200, { classes: classProfiles, movementProfiles, weapons: weaponProfiles, settings });
       return;
     }
 
@@ -168,12 +179,26 @@ function summarizeResult(result: FightResult) {
 function withClassProfiles(config: FightConfig): FightConfig {
   return {
     ...config,
+    ...settings,
     classes: cloneClassProfiles(classProfiles),
     movementProfiles: cloneMovementProfiles(movementProfiles),
     weapons: cloneWeapons(weaponProfiles),
     robots: config.robots.map((robot, index) =>
       syncRobotWithClass(robot, classProfiles, index, movementProfiles)
     ),
+  };
+}
+
+function mergeSettings(current: GameSettings, incoming: Partial<GameSettings>): GameSettings {
+  const clampNumber = (value: unknown, fallback: number, min: number, max: number) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.min(max, Math.max(min, value))
+      : fallback;
+
+  return {
+    moveInterval: clampNumber(incoming.moveInterval, current.moveInterval, 0.25, 4),
+    weaponInterval: clampNumber(incoming.weaponInterval, current.weaponInterval, 0.25, 6),
+    centerGravity: clampNumber(incoming.centerGravity, current.centerGravity, 0, 1),
   };
 }
 

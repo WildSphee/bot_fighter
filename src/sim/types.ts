@@ -96,6 +96,11 @@ export type FightConfig = {
   maxDuration: number;
   tickRate: number;
   previewFps: number;
+  // Seconds between movement rolls and weapon rolls (tunable from Setup).
+  moveInterval: number;
+  weaponInterval: number;
+  // Passive 0..1 pull that draws bots (not projectiles) toward arena center.
+  centerGravity: number;
   arena: ArenaConfig;
   classes: RobotClass[];
   movementProfiles: MovementProfileMap;

@@ -88,11 +88,14 @@ const ROCKET_ACCELERATION = 3.1;
 const ROCKET_MAX_SPEED = 1500;
 const COLLISION_DAMAGE_COOLDOWN = 0.45;
 const KNOCKBACK_MULTIPLIER = 2.1;
-// The movement slot picks a new move every second; the weapon list picks a new
-// action every two seconds. Both cadences are fixed so the on-screen slot/list
-// stay perfectly in sync with what actually executes.
+// Default cadences (seconds) when a config doesn't specify them. The movement
+// slot and weapon list pick on these fixed beats so the on-screen reels stay in
+// sync with what actually executes.
 const MOVE_INTERVAL = 1;
 const WEAPON_INTERVAL = 2;
+// Full-strength acceleration (units/s of velocity) for the passive center pull
+// at centerGravity = 1. Kept low so the drift stays subtle.
+const CENTER_GRAVITY_ACCEL = 26;
 // Railgun charge sequence (telegraph -> lock -> beam). The weapon roll pauses
 // until the whole sequence is over instead of rolling again mid-charge.
 const RAILGUN_CHARGE_SECONDS = 1;
@@ -114,6 +117,8 @@ export function simulateFight(config: FightConfig): FightResult {
   );
   const tickStep = 1 / config.tickRate;
   const frameStep = 1 / config.previewFps;
+  const moveInterval = config.moveInterval ?? MOVE_INTERVAL;
+  const weaponInterval = config.weaponInterval ?? WEAPON_INTERVAL;
   let nextFrameAt = 0;
   let winnerId: string | undefined;
   let winnerReason: "knockout" | "hp" | "damage" = "hp";
@@ -158,7 +163,7 @@ export function simulateFight(config: FightConfig): FightResult {
           robot.intent = movementRoll.id;
           robot.moveDeviation = ((rng.next() * 20 - 10) * Math.PI) / 180;
           robot.lastMove = robot.intent;
-          robot.nextMoveAt = time + MOVE_INTERVAL;
+          robot.nextMoveAt = time + moveInterval;
           events.push({
             type: "movement",
             time,
@@ -210,7 +215,7 @@ export function simulateFight(config: FightConfig): FightResult {
             robot.nextWeaponAt =
               weaponId === "railgun"
                 ? time + RAILGUN_CHARGE_SECONDS + RAILGUN_RESOLVE_SECONDS + RAILGUN_PAUSE_BUFFER
-                : time + WEAPON_INTERVAL;
+                : time + weaponInterval;
           }
         }
       }
@@ -369,6 +374,16 @@ function turnToward(current: number, desired: number, maxStep: number): number {
 
 function integrateRobot(robot: RobotState, config: FightConfig, dt: number) {
   const robotClass = robot.classProfile;
+
+  // Passive center gravity: a gentle pull toward the arena middle layered on top
+  // of the bot's own movement. Affects bots only — never projectiles.
+  const pull = config.centerGravity ?? 0;
+  if (pull > 0) {
+    const center = { x: config.arena.width / 2, y: config.arena.height / 2 };
+    const toward = normalize(sub(center, robot.position));
+    robot.velocity = add(robot.velocity, mul(toward, pull * CENTER_GRAVITY_ACCEL * dt));
+  }
+
   robot.velocity = mul(robot.velocity, config.arena.drag);
   robot.position = add(robot.position, mul(robot.velocity, dt * 60));
 
@@ -705,7 +720,8 @@ function fireWeapon(input: {
       position: landing,
       damage: weapon.damage,
       explosionRadius: weapon.radius + 70,
-      triggerRadius: weapon.radius + 24,
+      // +50% trigger radius so mines catch passing bots more reliably.
+      triggerRadius: (weapon.radius + 24) * 1.5,
       knockback: weapon.knockback,
       thrownAt: time,
       landAt,

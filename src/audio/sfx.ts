@@ -45,19 +45,25 @@ function playSound(
       tone(context, output, when, 0.16, 110, 72, "sawtooth", 0.08);
       break;
     case "charge":
-      tone(context, output, when, 0.5, 180, 920, "sine", 0.06);
-      tone(context, output, when + 0.2, 0.42, 320, 1380, "triangle", 0.05);
-      noiseBurst(context, output, when + 0.1, 0.55, 1800, 0.035);
+      // Sci-fi capacitor spin-up: stacked rising whines + shimmer building to
+      // the shot. Spans ~0.9s to track the 1s railgun charge.
+      tone(context, output, when, 0.9, 120, 1500, "sawtooth", 0.05);
+      tone(context, output, when, 0.9, 240, 2300, "sine", 0.045);
+      tone(context, output, when + 0.12, 0.78, 60, 760, "triangle", 0.06);
+      noiseBurst(context, output, when + 0.28, 0.6, 2800, 0.03);
       break;
     case "laser":
       tone(context, output, when, 0.13, 920, 180, "square", 0.11);
       break;
     case "railgun":
-      tone(context, output, when, 0.08, 72, 42, "sine", 0.24);
-      tone(context, output, when, 0.18, 1480, 88, "sawtooth", 0.18);
-      tone(context, output, when + 0.035, 0.28, 64, 31, "triangle", 0.2);
-      noiseBurst(context, output, when, 0.22, 1450, 0.42);
-      noiseBurst(context, output, when + 0.05, 0.42, 180, 0.24);
+      // Electromagnetic CRACK: sharp transient, descending hyper-laser zap,
+      // deep EM boom, and a thin metallic ring tail.
+      noiseBurst(context, output, when, 0.06, 7200, 0.5);
+      tone(context, output, when, 0.3, 3200, 120, "sawtooth", 0.2);
+      tone(context, output, when, 0.22, 1900, 60, "square", 0.13);
+      tone(context, output, when, 0.5, 150, 30, "sine", 0.34);
+      tone(context, output, when + 0.04, 0.5, 2500, 1700, "sine", 0.06);
+      noiseBurst(context, output, when, 0.3, 2200, 0.18);
       break;
     case "missile":
       tone(context, output, when, 0.34, 120, 86, "sawtooth", 0.08);
@@ -68,8 +74,13 @@ function playSound(
       tone(context, output, when, 0.1, 180, 90, "triangle", 0.08);
       break;
     case "explosion":
-      noiseBurst(context, output, when, 0.55, 180, 0.34);
-      tone(context, output, when, 0.5, 96, 34, "sine", 0.2);
+      // Layered boom: bright crack transient, mid body, deep sub drop, and a
+      // filtered rumble tail so detonations actually land.
+      noiseBurst(context, output, when, 0.07, 6000, 0.45);
+      noiseBurst(context, output, when, 0.6, 440, 0.5);
+      noiseBurst(context, output, when + 0.07, 0.7, 150, 0.3);
+      tone(context, output, when, 0.7, 170, 28, "sine", 0.5);
+      tone(context, output, when, 0.45, 82, 22, "triangle", 0.32);
       break;
     case "shield":
       tone(context, output, when, 0.18, 340, 620, "sine", 0.08);

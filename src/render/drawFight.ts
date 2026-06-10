@@ -866,42 +866,35 @@ function drawBotActionPanel(
   const padX = rect.x + 24;
   const innerWidth = rect.width - 48;
 
-  // Class name.
+  // Class name (left) and the current action readout (right) share the header
+  // row — no "MOVEMENT" / "WEAPONS" labels above the boxes.
   context.textAlign = "left";
   context.fillStyle = "#fff7e6";
   context.font = "900 24px Inter, system-ui, sans-serif";
-  context.fillText(getClassName(robot.classId), padX, rect.y + 32);
-
-  // Movement slot.
+  context.fillText(getClassName(robot.classId), padX, rect.y + 34);
+  context.textAlign = "right";
   context.fillStyle = "#9feee2";
-  context.font = "800 14px Inter, system-ui, sans-serif";
-  context.fillText("MOVEMENT", padX, rect.y + 58);
+  context.font = "800 16px Inter, system-ui, sans-serif";
+  context.fillText(
+    robot.lastWeapon ? getWeaponName(robot.lastWeapon) : "",
+    padX + innerWidth,
+    rect.y + 34
+  );
+
   drawMovementSlot(
     context,
     config?.movementDice.map((die) => die.id) ?? [robot.lastMove],
     movement,
     robot,
     time,
-    { x: padX, y: rect.y + 66, width: innerWidth, height: 70 }
+    { x: padX, y: rect.y + 50, width: innerWidth, height: 94 }
   );
 
-  // Weapon list.
-  context.fillStyle = "#ffdd78";
-  context.font = "800 14px Inter, system-ui, sans-serif";
-  context.fillText("WEAPONS", padX, rect.y + 162);
-  context.textAlign = "right";
-  context.fillStyle = "#fff7e6";
-  context.font = "900 16px Inter, system-ui, sans-serif";
-  context.fillText(
-    robot.lastWeapon ? getWeaponName(robot.lastWeapon) : "Waiting",
-    padX + innerWidth,
-    rect.y + 162
-  );
   drawWeaponList(context, config?.arsenal ?? [], weapon, robot.palette.glow, time, {
     x: padX,
-    y: rect.y + 172,
+    y: rect.y + 158,
     width: innerWidth,
-    height: 72,
+    height: 96,
   });
 
   context.restore();
