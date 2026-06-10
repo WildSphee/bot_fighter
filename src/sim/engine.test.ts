@@ -235,6 +235,48 @@ describe("simulateFight", () => {
     expect(damageToast?.label).toMatch(/^-\d+$/);
   });
 
+  it("delays passive shield regeneration for two seconds after damage", () => {
+    const config = createDefaultFightConfig("shield-regen-delay");
+    config.maxDuration = 3.2;
+    config.centerGravity = 0;
+    config.weapons = config.weapons.map((weapon) =>
+      weapon.id === "ray" ? { ...weapon, cooldown: 10, range: 2000, damage: 10 } : weapon
+    );
+    config.classes = config.classes.map((robotClass, index) => ({
+      ...robotClass,
+      speed: 0,
+      turnSpeed: 100,
+      arsenal: index === 0 ? ["ray"] : [],
+      movementProfile: "balanced",
+    }));
+    config.robots = config.robots.map((robot, index) => ({
+      ...robot,
+      classId: config.classes[index].id,
+      arsenal: index === 0 ? ["ray"] : [],
+      weaponDice: index === 0 ? [{ id: "ray", weight: 1 }] : [],
+      movementDice: [{ id: "hold", weight: 1 }],
+    }));
+
+    const result = simulateFight(config);
+    const hit = result.events.find(
+      (event): event is Extract<(typeof result.events)[number], { type: "hit" }> =>
+        event.type === "hit" && event.weaponId === "ray"
+    );
+    expect(hit).toBeDefined();
+
+    const shieldAt = (time: number) => {
+      const frame = result.frames.find((candidate) => candidate.time >= time);
+      return frame?.robots.find((robot) => robot.id === hit?.targetId)?.shield ?? 0;
+    };
+
+    const shieldAfterHit = shieldAt((hit?.time ?? 0) + 0.05);
+    const shieldOneSecondLater = shieldAt((hit?.time ?? 0) + 1);
+    const shieldAfterDelay = shieldAt((hit?.time ?? 0) + 2.35);
+
+    expect(shieldOneSecondLater).toBe(shieldAfterHit);
+    expect(shieldAfterDelay).toBeGreaterThan(shieldAfterHit);
+  });
+
   it("lets shotgun pellets penetrate after hitting a bot", () => {
     const config = createDefaultFightConfig("shotgun-penetrates");
     config.maxDuration = 1.4;

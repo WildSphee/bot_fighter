@@ -29,6 +29,7 @@ type RobotState = RobotFrame & {
   intent: MovementId;
   moveDeviation: number;
   lastCollisionAt: number;
+  lastDamagedAt: number;
 };
 
 type ProjectileState = ProjectileFrame & {
@@ -126,6 +127,7 @@ const RAILGUN_PAUSE_BUFFER = 0.5;
 const BLADE_HOLD_SECONDS = 1;
 const BLADE_SWING_SECONDS = 0.82;
 const BLAST_RIFLE_SHOT_INTERVAL = 0.12;
+const SHIELD_REGEN_DELAY_SECONDS = 2;
 
 export function simulateFight(config: FightConfig): FightResult {
   const rng = createRng(`${config.seed}:${config.robots.map((robot) => robot.id).join("|")}`);
@@ -259,7 +261,7 @@ export function simulateFight(config: FightConfig): FightResult {
       updateBladeSwings(bladeSwings, robots, projectiles, effects, events, damageByRobot, time);
       updateProjectiles(projectiles, robots, config.arena, effects, events, damageByRobot, time, tickStep);
       updateMines(mines, robots, effects, events, damageByRobot, time);
-      rechargeShields(robots, tickStep);
+      rechargeShields(robots, tickStep, time);
       pruneEffects(effects, time);
     } else {
       const slowTime = deathTime + (time - deathTime) * 0.5;
@@ -340,6 +342,7 @@ function createInitialRobots(config: FightConfig): RobotState[] {
       intent: "hold",
       moveDeviation: ((index % 2 === 0 ? 7 : -7) * Math.PI) / 180,
       lastCollisionAt: -1,
+      lastDamagedAt: -Infinity,
     };
   });
 }
@@ -518,6 +521,7 @@ function applyCollisionDamage(
   target.shield -= shieldAbsorb;
   const damage = Math.max(1, (rawDamage - shieldAbsorb) * (1 - targetClass.armor));
   target.hp = Math.max(0, target.hp - damage);
+  target.lastDamagedAt = time;
   attacker.damageDone += damage;
   damageByRobot[attacker.id] += damage;
 
@@ -1153,6 +1157,7 @@ function applyDamage(
   target.shield -= shieldAbsorb;
   const damage = Math.max(1, (weapon.damage - shieldAbsorb) * (1 - targetClass.armor));
   target.hp = Math.max(0, target.hp - damage);
+  target.lastDamagedAt = time;
   attacker.damageDone += damage;
   damageByRobot[attacker.id] += damage;
 
@@ -1458,9 +1463,9 @@ function addElectricParticles(
   }
 }
 
-function rechargeShields(robots: RobotState[], dt: number) {
+function rechargeShields(robots: RobotState[], dt: number, time: number) {
   for (const robot of robots) {
-    if (robot.alive) {
+    if (robot.alive && robot.shield < robot.maxShield && robot.lastDamagedAt + SHIELD_REGEN_DELAY_SECONDS <= time) {
       robot.shield = clamp(robot.shield + dt * 1.15, 0, robot.maxShield);
     }
   }
