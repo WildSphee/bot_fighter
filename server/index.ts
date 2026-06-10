@@ -7,6 +7,7 @@ import {
   cloneWeapons,
   createDefaultFightConfig,
   syncRobotWithClass,
+  withClassDefaults,
 } from "../src/sim/catalog";
 import { simulateFight } from "../src/sim/engine";
 import type {
@@ -82,7 +83,7 @@ const server = createServer(async (request, response) => {
       }
 
       if (body.classes) {
-        classProfiles = cloneClassProfiles(body.classes);
+        classProfiles = cloneClassProfiles(withClassDefaults(body.classes));
       }
       if (body.movementProfiles) {
         movementProfiles = cloneMovementProfiles(body.movementProfiles);

@@ -276,6 +276,25 @@ export function getClass(classId: string, classes = ROBOT_CLASSES): RobotClass {
   return classes.find((robotClass) => robotClass.id === classId) ?? classes[0] ?? ROBOT_CLASSES[0];
 }
 
+// Fills in fields that may be absent from older persisted profiles (e.g.
+// turnSpeed / impactDamage added later) using the built-in catalog as the
+// source of defaults, while preserving any values the user customized.
+export function withClassDefaults(classes: RobotClass[]): RobotClass[] {
+  return classes.map((robotClass) => {
+    const base = ROBOT_CLASSES.find((candidate) => candidate.id === robotClass.id);
+    return {
+      ...base,
+      ...robotClass,
+      impactDamage: Number.isFinite(robotClass.impactDamage)
+        ? robotClass.impactDamage
+        : base?.impactDamage ?? 8,
+      turnSpeed: Number.isFinite(robotClass.turnSpeed) ? robotClass.turnSpeed : base?.turnSpeed ?? 3,
+      palette: { ...robotClass.palette },
+      arsenal: [...robotClass.arsenal],
+    };
+  });
+}
+
 export function getWeapon(weaponId: WeaponId): WeaponDefinition {
   return WEAPONS.find((weapon) => weapon.id === weaponId) ?? WEAPONS[0];
 }

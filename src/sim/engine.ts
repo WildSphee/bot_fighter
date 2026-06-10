@@ -307,7 +307,8 @@ function applyMovement(
     robot.position.y > config.arena.height - 90;
   const vector = rotateVector(nearWall ? boundaryVector : movementVector[robot.intent], robot.moveDeviation);
   robot.velocity = add(robot.velocity, mul(vector, robotClass.speed * dt));
-  robot.angle = turnToward(robot.angle, angleTo(robot.position, target.position), robotClass.turnSpeed * dt);
+  const turnSpeed = Number.isFinite(robotClass.turnSpeed) ? robotClass.turnSpeed : 3;
+  robot.angle = turnToward(robot.angle, angleTo(robot.position, target.position), turnSpeed * dt);
 }
 
 function turnToward(current: number, desired: number, maxStep: number): number {
@@ -388,8 +389,10 @@ function resolveRobotCollisions(
           time - right.lastCollisionAt >= COLLISION_DAMAGE_COOLDOWN;
         if (hardEnough && ready) {
           const contact = add(left.position, mul(normal, ROBOT_RADIUS));
-          applyCollisionDamage(right, left, leftClass.impactDamage, time, events, damageByRobot, effects);
-          applyCollisionDamage(left, right, rightClass.impactDamage, time, events, damageByRobot, effects);
+          const leftImpact = Number.isFinite(leftClass.impactDamage) ? leftClass.impactDamage : 0;
+          const rightImpact = Number.isFinite(rightClass.impactDamage) ? rightClass.impactDamage : 0;
+          applyCollisionDamage(right, left, leftImpact, time, events, damageByRobot, effects);
+          applyCollisionDamage(left, right, rightImpact, time, events, damageByRobot, effects);
           effects.push(createEffect("spark", contact, 30, time, "#fff4cf"));
           left.lastCollisionAt = time;
           right.lastCollisionAt = time;
@@ -470,7 +473,9 @@ function fireWeapon(input: {
     return;
   }
 
-  const direction = normalize(sub(target.position, attacker.position));
+  // Weapons fire along the bot's current facing, not straight at the target,
+  // so the bot's (slow) rotation determines whether a shot actually connects.
+  const direction = { x: Math.cos(attacker.angle), y: Math.sin(attacker.angle) };
   effects.push(
     createEffect("muzzle", add(attacker.position, mul(direction, ROBOT_RADIUS + 8)), weapon.radius + 16, time, attacker.palette.glow, {
       weaponId: weapon.id,
@@ -626,25 +631,50 @@ function fireWeapon(input: {
   }
 
   if (weapon.id === "emp") {
+    // EMP is an omnidirectional pulse around the bot, so facing doesn't matter:
+    // it hits any enemy inside the blast radius.
     effects.push(
       createEffect("emp", attacker.position, weapon.radius + 96, time, "#a9fffd", {
         weaponId: weapon.id,
       })
     );
     addElectricParticles(effects, attacker.position, time, weapon.radius + 96);
-  } else {
+    for (const robot of input.robots) {
+      if (robot.id !== attacker.id && robot.alive && distance(robot.position, attacker.position) <= weapon.radius + 90) {
+        applyDamage(attacker, robot, weapon, time, events, damageByRobot, effects);
+        effects.push(
+          createEffect("emp", robot.position, weapon.radius + 12, time, attacker.palette.glow, {
+            weaponId: weapon.id,
+          })
+        );
+      }
+    }
+    return;
+  }
+
+  // Instant beam weapons (ray, etc.) fire straight along the bot's facing.
+  const beamEnd = add(attacker.position, mul(direction, weapon.range));
+  effects.push(
+    createEffect("beam", attacker.position, 10, time, attacker.palette.glow, {
+      endPosition: beamEnd,
+      weaponId: weapon.id,
+    })
+  );
+
+  const onLine =
+    pointLineDistance(target.position, attacker.position, beamEnd) <= ROBOT_RADIUS + 10 &&
+    targetDistance <= weapon.range;
+
+  if (onLine) {
+    applyDamage(attacker, target, weapon, time, events, damageByRobot, effects);
     effects.push(
-      createEffect("beam", attacker.position, 10, time, attacker.palette.glow, {
-        endPosition: target.position,
+      createEffect("hit", target.position, weapon.radius + 12, time, attacker.palette.glow, {
         weaponId: weapon.id,
       })
     );
-  }
-
-  if (rngNext() <= 0.78) {
-    applyDamage(attacker, target, weapon, time, events, damageByRobot, effects);
+  } else {
     effects.push(
-      createEffect(weapon.id === "emp" ? "emp" : "hit", target.position, weapon.radius + 12, time, attacker.palette.glow, {
+      createEffect("spark", beamEnd, 18, time, attacker.palette.glow, {
         weaponId: weapon.id,
       })
     );

@@ -32,6 +32,7 @@ import {
   createDefaultFightConfig,
   normalizeMovementProfile,
   syncRobotWithClass,
+  withClassDefaults,
 } from "./sim/catalog";
 import { cloneFightConfig, simulateFight } from "./sim/engine";
 import type {
@@ -238,7 +239,7 @@ export default function App() {
             | undefined
         ) => {
         if (payload?.classes?.length) {
-          setClasses(payload.classes);
+          setClasses(withClassDefaults(payload.classes));
         }
         if (payload?.movementProfiles) {
           setMovementProfiles(cloneMovementProfiles(payload.movementProfiles));
@@ -904,17 +905,11 @@ function readHistory(): HistoryItem[] {
 function readClassProfiles(): RobotClass[] {
   try {
     const raw = window.localStorage.getItem(CLASS_PROFILE_KEY);
-    return raw ? (JSON.parse(raw) as RobotClass[]) : ROBOT_CLASSES.map((robotClass) => ({
-      ...robotClass,
-      palette: { ...robotClass.palette },
-      arsenal: [...robotClass.arsenal],
-    }));
+    return raw
+      ? withClassDefaults(JSON.parse(raw) as RobotClass[])
+      : withClassDefaults(ROBOT_CLASSES);
   } catch {
-    return ROBOT_CLASSES.map((robotClass) => ({
-      ...robotClass,
-      palette: { ...robotClass.palette },
-      arsenal: [...robotClass.arsenal],
-    }));
+    return withClassDefaults(ROBOT_CLASSES);
   }
 }
 
