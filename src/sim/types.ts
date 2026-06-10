@@ -20,6 +20,8 @@ export type RobotClass = {
   armor: number;
   mass: number;
   shield: number;
+  impactDamage: number;
+  turnSpeed: number;
   arsenal: WeaponId[];
   movementProfile: MovementProfileId;
   palette: {
@@ -50,7 +52,8 @@ export type WeaponId =
   | "mine"
   | "shield"
   | "emp"
-  | "railgun";
+  | "railgun"
+  | "rocket";
 
 export type WeightedDie<T extends string> = {
   id: T;
@@ -96,6 +99,7 @@ export type FightConfig = {
   arena: ArenaConfig;
   classes: RobotClass[];
   movementProfiles: MovementProfileMap;
+  weapons: WeaponDefinition[];
   robots: RobotConfig[];
 };
 

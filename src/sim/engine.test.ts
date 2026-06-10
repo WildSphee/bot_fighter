@@ -46,6 +46,7 @@ describe("simulateFight", () => {
       shield: ["shield"],
       emp: ["emp"],
       railgun: ["beam"],
+      rocket: ["projectile", "explosion"],
     };
 
     for (const weapon of WEAPONS) {

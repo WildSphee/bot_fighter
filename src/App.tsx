@@ -1,4 +1,5 @@
 import {
+  Crosshair,
   Dices,
   Download,
   ExternalLink,
@@ -19,13 +20,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NCS_TRACKS, NCS_USAGE_POLICY_URL } from "./audio/ncsCatalog";
 import { createSoundEngine, type SoundEngine } from "./audio/sfx";
 import { recordReel } from "./export/recordReel";
-import { drawFightFrame } from "./render/drawFight";
+import { drawFightFrame, drawIntroCard } from "./render/drawFight";
 import {
   MOVEMENTS,
   MOVEMENT_PROFILES,
   ROBOT_CLASSES,
   WEAPONS,
   cloneMovementProfiles,
+  cloneWeapons,
   createRobotFromClass,
   createDefaultFightConfig,
   normalizeMovementProfile,
@@ -40,9 +42,10 @@ import type {
   MovementProfileMap,
   RobotClass,
   RobotConfig,
+  WeaponDefinition,
 } from "./sim/types";
 
-type Tab = "setup" | "dice" | "movement" | "export" | "history";
+type Tab = "setup" | "dice" | "weapons" | "movement" | "export" | "history";
 
 type HistoryItem = {
   id: string;
@@ -55,11 +58,24 @@ type HistoryItem = {
 const HISTORY_KEY = "bot-fighter-history";
 const CLASS_PROFILE_KEY = "bot-fighter-class-profiles";
 const MOVEMENT_PROFILE_KEY = "bot-fighter-movement-profiles";
+const WEAPON_PROFILE_KEY = "bot-fighter-weapon-profiles";
 
 const MOVEMENT_PROFILE_LABELS: Record<MovementProfileId, string> = {
   balanced: "Balanced",
   aggressive: "Aggressive",
   evasive: "Evasive",
+};
+
+const WEAPON_COLORS: Record<string, string> = {
+  ray: "#a9fffd",
+  missile: "#ff8f4f",
+  boomerang: "#d7f8ff",
+  shotgun: "#ffd166",
+  mine: "#f6c85f",
+  shield: "#7ef7c7",
+  emp: "#a9fffd",
+  railgun: "#36e0ff",
+  rocket: "#ff6a3d",
 };
 
 const MOVEMENT_LABELS: Record<MovementId, string> = {
@@ -90,10 +106,13 @@ export default function App() {
   const [exportStatus, setExportStatus] = useState("Ready");
   const [frameIndex, setFrameIndex] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>(() => readHistory());
+  const [weapons, setWeapons] = useState<WeaponDefinition[]>(() => readWeaponProfiles());
+  const [intro, setIntro] = useState<string[] | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const lastSoundTimeRef = useRef(-0.01);
   const soundEngineRef = useRef<SoundEngine | null>(null);
+  const introTimeoutRef = useRef<number | null>(null);
 
   const syncedRobots = useMemo(
     () => robots.map((robot, index) => syncRobotWithClass(robot, classes, index, movementProfiles)),
@@ -107,9 +126,10 @@ export default function App() {
       maxDuration,
       classes,
       movementProfiles,
+      weapons,
       robots: syncedRobots,
     }),
-    [classes, maxDuration, movementProfiles, seed, syncedRobots]
+    [classes, maxDuration, movementProfiles, seed, syncedRobots, weapons]
   );
   const result = useMemo(() => simulateFight(config), [config]);
   const frame = result.frames[Math.min(frameIndex, result.frames.length - 1)] ?? result.frames[0];
@@ -125,6 +145,15 @@ export default function App() {
     lastSoundTimeRef.current = -0.01;
   }, [result]);
 
+  useEffect(
+    () => () => {
+      if (introTimeoutRef.current !== null) {
+        window.clearTimeout(introTimeoutRef.current);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
@@ -133,7 +162,10 @@ export default function App() {
     }
 
     drawFightFrame(context, frame, result);
-  }, [frame, result]);
+    if (intro) {
+      drawIntroCard(context, intro);
+    }
+  }, [frame, result, intro]);
 
   useEffect(() => {
     if (!isPlaying) {
@@ -188,22 +220,31 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem(CLASS_PROFILE_KEY, JSON.stringify(classes));
     window.localStorage.setItem(MOVEMENT_PROFILE_KEY, JSON.stringify(movementProfiles));
+    window.localStorage.setItem(WEAPON_PROFILE_KEY, JSON.stringify(weapons));
     void fetch("http://localhost:8787/api/class-profiles", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ classes, movementProfiles }),
+      body: JSON.stringify({ classes, movementProfiles, weapons }),
     }).catch(() => undefined);
-  }, [classes, movementProfiles]);
+  }, [classes, movementProfiles, weapons]);
 
   useEffect(() => {
     void fetch("http://localhost:8787/api/class-profiles")
       .then((response) => (response.ok ? response.json() : undefined))
-      .then((payload: { classes?: RobotClass[]; movementProfiles?: MovementProfileMap } | undefined) => {
+      .then(
+        (
+          payload:
+            | { classes?: RobotClass[]; movementProfiles?: MovementProfileMap; weapons?: WeaponDefinition[] }
+            | undefined
+        ) => {
         if (payload?.classes?.length) {
           setClasses(payload.classes);
         }
         if (payload?.movementProfiles) {
           setMovementProfiles(cloneMovementProfiles(payload.movementProfiles));
+        }
+        if (payload?.weapons?.length) {
+          setWeapons(payload.weapons);
         }
       })
       .catch(() => undefined);
@@ -244,6 +285,14 @@ export default function App() {
     }));
   }
 
+  function updateWeaponDamage(weaponId: WeaponDefinition["id"], damage: number) {
+    setWeapons((current) =>
+      current.map((weapon) =>
+        weapon.id === weaponId ? { ...weapon, damage: Math.max(0, Math.round(damage)) } : weapon
+      )
+    );
+  }
+
   function addBot() {
     setRobots((current) => {
       const next = createRobotFromClass(
@@ -268,7 +317,8 @@ export default function App() {
 
   function randomizeSeed() {
     setSeed(`fight-${Date.now().toString(36)}`);
-    setIsPlaying(true);
+    setFrameIndex(0);
+    startPreview();
   }
 
   function ensureSoundEngine() {
@@ -285,7 +335,19 @@ export default function App() {
     setFrameIndex(0);
     lastSoundTimeRef.current = -0.01;
     startedAtRef.current = null;
-    setIsPlaying(true);
+    setIsPlaying(false);
+
+    const names = syncedRobots.map((robot) => getClassName(robot.classId, classes));
+    setIntro(names);
+
+    if (introTimeoutRef.current !== null) {
+      window.clearTimeout(introTimeoutRef.current);
+    }
+    introTimeoutRef.current = window.setTimeout(() => {
+      setIntro(null);
+      startedAtRef.current = null;
+      setIsPlaying(true);
+    }, 2000);
   }
 
   function saveToHistory(resultToSave: FightResult) {
@@ -398,6 +460,13 @@ export default function App() {
               Dice
             </button>
             <button
+              className={activeTab === "weapons" ? "tab-button is-active" : "tab-button"}
+              onClick={() => setActiveTab("weapons")}
+            >
+              <Crosshair size={17} />
+              Weapons
+            </button>
+            <button
               className={activeTab === "movement" ? "tab-button is-active" : "tab-button"}
               onClick={() => setActiveTab("movement")}
             >
@@ -502,39 +571,73 @@ export default function App() {
                     <span style={{ background: robotClass.palette.body }} />
                     <strong>{robotClass.name}</strong>
                   </div>
-                  <label className="field">
-                    <span>Starting Shield</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={80}
-                      value={robotClass.shield}
-                      onChange={(event) =>
-                        updateClass(robotClass.id, (current) => ({
-                          ...current,
-                          shield: Number(event.target.value),
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="field">
-                    <span>Movement Profile</span>
-                    <select
-                      value={robotClass.movementProfile}
-                      onChange={(event) =>
-                        updateClass(robotClass.id, (current) => ({
-                          ...current,
-                          movementProfile: event.target.value as MovementProfileId,
-                        }))
-                      }
-                    >
-                      {Object.entries(MOVEMENT_PROFILE_LABELS).map(([profileId, label]) => (
-                        <option key={profileId} value={profileId}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <div className="two-col">
+                    <label className="field">
+                      <span>Starting Health</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={400}
+                        value={robotClass.hp}
+                        onChange={(event) =>
+                          updateClass(robotClass.id, (current) => ({
+                            ...current,
+                            hp: Number(event.target.value),
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Impact Damage</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={80}
+                        value={robotClass.impactDamage}
+                        onChange={(event) =>
+                          updateClass(robotClass.id, (current) => ({
+                            ...current,
+                            impactDamage: Number(event.target.value),
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="two-col">
+                    <label className="field">
+                      <span>Starting Shield</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={80}
+                        value={robotClass.shield}
+                        onChange={(event) =>
+                          updateClass(robotClass.id, (current) => ({
+                            ...current,
+                            shield: Number(event.target.value),
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Movement Profile</span>
+                      <select
+                        value={robotClass.movementProfile}
+                        onChange={(event) =>
+                          updateClass(robotClass.id, (current) => ({
+                            ...current,
+                            movementProfile: event.target.value as MovementProfileId,
+                          }))
+                        }
+                      >
+                        {Object.entries(MOVEMENT_PROFILE_LABELS).map(([profileId, label]) => (
+                          <option key={profileId} value={profileId}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                   <div className="check-grid">
                     {WEAPONS.map((weapon) => (
                       <label key={weapon.id} className="check-row">
@@ -555,6 +658,48 @@ export default function App() {
                     ))}
                   </div>
                   <p className="muted">Weapon odds are automatic: {Math.round(100 / Math.max(1, robotClass.arsenal.length))}% each.</p>
+                </section>
+              ))}
+            </div>
+          )}
+
+          {activeTab === "weapons" && (
+            <div className="panel-stack">
+              {weapons.map((weapon) => (
+                <section className="robot-editor" key={weapon.id}>
+                  <div className="robot-editor__header">
+                    <span style={{ background: WEAPON_COLORS[weapon.id] ?? "#9feee2" }} />
+                    <strong>{weapon.name}</strong>
+                    <em className="weapon-rarity">{weapon.rarity}</em>
+                  </div>
+                  <label className="field">
+                    <span>Damage</span>
+                    <div className="input-action">
+                      <input
+                        type="range"
+                        min={0}
+                        max={120}
+                        step={1}
+                        value={weapon.damage}
+                        onChange={(event) => updateWeaponDamage(weapon.id, Number(event.target.value))}
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={200}
+                        value={weapon.damage}
+                        onChange={(event) => updateWeaponDamage(weapon.id, Number(event.target.value))}
+                      />
+                    </div>
+                  </label>
+                  <dl className="weapon-stats">
+                    <div><dt>Type</dt><dd>{weapon.kind}</dd></div>
+                    <div><dt>Range</dt><dd>{weapon.range}</dd></div>
+                    <div><dt>Cooldown</dt><dd>{weapon.cooldown}s</dd></div>
+                    <div><dt>Speed</dt><dd>{weapon.projectileSpeed || "—"}</dd></div>
+                    <div><dt>Radius</dt><dd>{weapon.radius}</dd></div>
+                    <div><dt>Knockback</dt><dd>{weapon.knockback}</dd></div>
+                  </dl>
                 </section>
               ))}
             </div>
@@ -786,6 +931,26 @@ function readMovementProfiles(): MovementProfileMap {
     });
   } catch {
     return cloneMovementProfiles(MOVEMENT_PROFILES);
+  }
+}
+
+function readWeaponProfiles(): WeaponDefinition[] {
+  const base = cloneWeapons();
+  try {
+    const raw = window.localStorage.getItem(WEAPON_PROFILE_KEY);
+    if (!raw) {
+      return base;
+    }
+
+    const stored = JSON.parse(raw) as WeaponDefinition[];
+    // Merge persisted overrides onto the current catalog so newly added
+    // weapons still show up and only edited fields (damage) carry over.
+    return base.map((weapon) => {
+      const override = stored.find((candidate) => candidate.id === weapon.id);
+      return override ? { ...weapon, damage: override.damage } : weapon;
+    });
+  } catch {
+    return base;
   }
 }
 

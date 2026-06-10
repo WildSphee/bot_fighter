@@ -3,18 +3,25 @@ import { URL } from "node:url";
 import {
   ARENAS,
   ROBOT_CLASSES,
-  WEAPONS,
   cloneMovementProfiles,
+  cloneWeapons,
   createDefaultFightConfig,
   syncRobotWithClass,
 } from "../src/sim/catalog";
 import { simulateFight } from "../src/sim/engine";
-import type { FightConfig, FightResult, MovementProfileMap, RobotClass } from "../src/sim/types";
+import type {
+  FightConfig,
+  FightResult,
+  MovementProfileMap,
+  RobotClass,
+  WeaponDefinition,
+} from "../src/sim/types";
 
 const PORT = Number(process.env.API_PORT ?? 8787);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
 let classProfiles = cloneClassProfiles(ROBOT_CLASSES);
 let movementProfiles = cloneMovementProfiles();
+let weaponProfiles = cloneWeapons();
 
 const server = createServer(async (request, response) => {
   setCorsHeaders(response);
@@ -43,7 +50,7 @@ const server = createServer(async (request, response) => {
         arenas: ARENAS,
         robotClasses: classProfiles,
         movementProfiles,
-        weapons: WEAPONS,
+        weapons: weaponProfiles,
         defaultConfig: withClassProfiles(createDefaultFightConfig(url.searchParams.get("seed") ?? undefined)),
       });
       return;
@@ -55,18 +62,22 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/class-profiles") {
-      sendJson(response, 200, { classes: classProfiles, movementProfiles });
+      sendJson(response, 200, { classes: classProfiles, movementProfiles, weapons: weaponProfiles });
       return;
     }
 
     if (request.method === "PUT" && url.pathname === "/api/class-profiles") {
-      const body = await readJson<{ classes?: RobotClass[]; movementProfiles?: MovementProfileMap }>(request);
+      const body = await readJson<{
+        classes?: RobotClass[];
+        movementProfiles?: MovementProfileMap;
+        weapons?: WeaponDefinition[];
+      }>(request);
       if (body.classes && !body.classes.length) {
         sendJson(response, 400, { error: "classes must be a non-empty array" });
         return;
       }
-      if (!body.classes && !body.movementProfiles) {
-        sendJson(response, 400, { error: "classes or movementProfiles must be provided" });
+      if (!body.classes && !body.movementProfiles && !body.weapons) {
+        sendJson(response, 400, { error: "classes, movementProfiles, or weapons must be provided" });
         return;
       }
 
@@ -76,8 +87,11 @@ const server = createServer(async (request, response) => {
       if (body.movementProfiles) {
         movementProfiles = cloneMovementProfiles(body.movementProfiles);
       }
+      if (body.weapons?.length) {
+        weaponProfiles = cloneWeapons(body.weapons);
+      }
 
-      sendJson(response, 200, { classes: classProfiles, movementProfiles });
+      sendJson(response, 200, { classes: classProfiles, movementProfiles, weapons: weaponProfiles });
       return;
     }
 
@@ -155,6 +169,7 @@ function withClassProfiles(config: FightConfig): FightConfig {
     ...config,
     classes: cloneClassProfiles(classProfiles),
     movementProfiles: cloneMovementProfiles(movementProfiles),
+    weapons: cloneWeapons(weaponProfiles),
     robots: config.robots.map((robot, index) =>
       syncRobotWithClass(robot, classProfiles, index, movementProfiles)
     ),

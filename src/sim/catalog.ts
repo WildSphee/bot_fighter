@@ -31,7 +31,9 @@ export const ROBOT_CLASSES: RobotClass[] = [
     armor: 0.08,
     mass: 0.85,
     shield: 18,
-    arsenal: ["ray", "missile", "shotgun", "shield"],
+    impactDamage: 11,
+    turnSpeed: 3.4,
+    arsenal: ["ray", "missile", "rocket", "shotgun", "shield"],
     movementProfile: "aggressive",
     palette: {
       body: "#ef4f64",
@@ -47,7 +49,9 @@ export const ROBOT_CLASSES: RobotClass[] = [
     armor: 0.18,
     mass: 1.25,
     shield: 26,
-    arsenal: ["ray", "mine", "shield", "railgun"],
+    impactDamage: 17,
+    turnSpeed: 2.1,
+    arsenal: ["ray", "mine", "rocket", "shield", "railgun"],
     movementProfile: "balanced",
     palette: {
       body: "#8b5cf6",
@@ -63,6 +67,8 @@ export const ROBOT_CLASSES: RobotClass[] = [
     armor: 0.04,
     mass: 0.72,
     shield: 22,
+    impactDamage: 8,
+    turnSpeed: 4.4,
     arsenal: ["ray", "boomerang", "emp", "railgun"],
     movementProfile: "evasive",
     palette: {
@@ -226,6 +232,20 @@ export const WEAPONS: WeaponDefinition[] = [
     rarity: "rare",
     sound: "charge",
   },
+  {
+    id: "rocket",
+    name: "Rocket",
+    kind: "projectile",
+    range: 780,
+    damage: 34,
+    projectileSpeed: 120,
+    cooldown: 2.6,
+    radius: 16,
+    homing: 0,
+    knockback: 96,
+    rarity: "uncommon",
+    sound: "missile",
+  },
 ];
 
 export const DEFAULT_ROBOTS: RobotConfig[] = [
@@ -243,8 +263,13 @@ export function createDefaultFightConfig(seed = "bot-fighter-001"): FightConfig 
     arena: ARENAS[0],
     classes: ROBOT_CLASSES,
     movementProfiles: cloneMovementProfiles(MOVEMENT_PROFILES),
+    weapons: cloneWeapons(),
     robots: DEFAULT_ROBOTS,
   };
+}
+
+export function cloneWeapons(weapons: WeaponDefinition[] = WEAPONS): WeaponDefinition[] {
+  return weapons.map((weapon) => ({ ...weapon }));
 }
 
 export function getClass(classId: string, classes = ROBOT_CLASSES): RobotClass {
@@ -253,6 +278,10 @@ export function getClass(classId: string, classes = ROBOT_CLASSES): RobotClass {
 
 export function getWeapon(weaponId: WeaponId): WeaponDefinition {
   return WEAPONS.find((weapon) => weapon.id === weaponId) ?? WEAPONS[0];
+}
+
+export function getWeaponFrom(weapons: WeaponDefinition[], weaponId: WeaponId): WeaponDefinition {
+  return weapons.find((weapon) => weapon.id === weaponId) ?? getWeapon(weaponId);
 }
 
 export function cloneMovementProfiles(

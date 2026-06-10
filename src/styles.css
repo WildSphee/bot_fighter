@@ -220,6 +220,42 @@ button {
   grid-template-columns: 1fr 1fr;
 }
 
+.weapon-rarity {
+  color: #8aa0ad;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  margin-left: auto;
+  text-transform: uppercase;
+}
+
+.weapon-stats {
+  display: grid;
+  gap: 6px 14px;
+  grid-template-columns: 1fr 1fr;
+  margin: 4px 0 0;
+}
+
+.weapon-stats div {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+}
+
+.weapon-stats dt {
+  color: #8aa0ad;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.weapon-stats dd {
+  font-size: 14px;
+  font-weight: 800;
+  margin: 0;
+}
+
 .check-row {
   align-items: center;
   background: rgba(32, 43, 53, 0.06);

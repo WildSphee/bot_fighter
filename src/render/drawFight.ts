@@ -57,6 +57,8 @@ export function drawFightFrame(
   drawRobots(context, frame, result.config.arena, layout);
   context.restore();
 
+  drawRailgunOverlay(context, frame, result.config.arena, layout);
+
   drawFloatingActions(context, frame, result, layout);
   drawActionBar(context, frame, result, layout);
   drawWinnerCard(context, frame, result, layout);
@@ -151,7 +153,7 @@ function drawTopBar(
   context.fillStyle = "#fff7e6";
   context.font = "900 36px Inter, system-ui, sans-serif";
   context.textAlign = "center";
-  context.fillText("FIGHT LAB- WHO WILL WIN?", layout.width / 2, 44);
+  context.fillText("WHO WILL WIN?", layout.width / 2, 44);
 
   const slots = topSlots(frame.robots, layout);
   frame.robots.slice(0, 4).forEach((robot, index) => {
@@ -261,6 +263,13 @@ function drawEffects(
   layout: Layout
 ) {
   for (const effect of frame.effects) {
+    if (
+      effect.weaponId === "railgun" &&
+      (effect.type === "beam" || effect.type === "telegraph")
+    ) {
+      continue;
+    }
+
     const worldPosition =
       effect.type === "bit" && effect.velocity
         ? {
@@ -317,6 +326,48 @@ function drawEffects(
   }
 }
 
+function drawRailgunOverlay(
+  context: CanvasRenderingContext2D,
+  frame: FightFrame,
+  arena: ArenaConfig,
+  layout: Layout
+) {
+  const railgunEffects = frame.effects.filter(
+    (effect) =>
+      effect.weaponId === "railgun" &&
+      (effect.type === "beam" || effect.type === "telegraph") &&
+      effect.endPosition
+  );
+
+  if (railgunEffects.length === 0) {
+    return;
+  }
+
+  context.save();
+  // Clip to the playfield band so the beam can shoot past the arena box
+  // edges without painting over the HUD bars.
+  clipRect(context, {
+    x: 0,
+    y: layout.topBar.height,
+    width: layout.width,
+    height: layout.actionBar.y - layout.topBar.height,
+  });
+
+  for (const effect of railgunEffects) {
+    const start = mapPoint(effect.position, arena, layout.arena);
+    const end = mapPoint(effect.endPosition as Vec2, arena, layout.arena);
+    const alpha = Math.max(0, 1 - effect.age / effect.duration);
+
+    if (effect.type === "telegraph") {
+      drawRailgunTelegraph(context, effect, start, end);
+    } else {
+      drawBeamEffect(context, effect, start, end, alpha);
+    }
+  }
+
+  context.restore();
+}
+
 function drawDebrisBit(
   context: CanvasRenderingContext2D,
   position: Vec2,
@@ -356,7 +407,7 @@ function drawBeamEffect(
 ) {
   const isRailgun = effect.weaponId === "railgun";
   const isRay = effect.weaponId === "ray";
-  const beamColor = isRailgun ? "#ffdd78" : isRay ? "#a9fffd" : effect.color;
+  const beamColor = isRailgun ? "#36e0ff" : isRay ? "#a9fffd" : effect.color;
 
   context.save();
   context.globalAlpha = alpha;
@@ -474,7 +525,8 @@ function drawProjectiles(
 ) {
   for (const projectile of frame.projectiles) {
     const position = mapPoint(projectile.position, arena, layout.arena);
-    const radius = Math.max(projectile.weaponId === "missile" ? 12 : 8, projectile.radius * 0.75);
+    const isRocketLike = projectile.weaponId === "missile" || projectile.weaponId === "rocket";
+    const radius = Math.max(isRocketLike ? 12 : 8, projectile.radius * 0.75);
     const angle = Math.atan2(projectile.velocity.y, projectile.velocity.x);
     context.save();
     context.translate(position.x, position.y);
@@ -500,7 +552,7 @@ function drawProjectiles(
       context.lineWidth = 2;
       context.stroke();
     } else {
-      context.shadowBlur = projectile.weaponId === "missile" ? 18 : 10;
+      context.shadowBlur = isRocketLike ? 18 : 10;
       context.shadowColor = projectileColor(projectile.weaponId);
       context.beginPath();
       context.moveTo(radius * 1.45, 0);
@@ -511,7 +563,7 @@ function drawProjectiles(
       context.fill();
       context.stroke();
 
-      if (projectile.weaponId === "missile") {
+      if (isRocketLike) {
         context.fillStyle = "#ffdd78";
         context.beginPath();
         context.moveTo(-radius * 0.85, 0);
@@ -845,6 +897,23 @@ function drawWinnerCard(
   context.restore();
 }
 
+export function drawIntroCard(context: CanvasRenderingContext2D, names: string[]) {
+  const layout = createLayout(context);
+  const bandY = layout.arena.y + layout.arena.height * 0.35;
+
+  context.save();
+  context.fillStyle = "rgba(7, 12, 17, 0.8)";
+  context.fillRect(0, bandY, layout.width, 270);
+  context.textAlign = "center";
+  context.fillStyle = "#ffffff";
+  context.font = "900 58px Inter, system-ui, sans-serif";
+  context.fillText(names.join("  vs  "), layout.width / 2, bandY + 105);
+  context.fillStyle = "#ffdd78";
+  context.font = "800 46px Inter, system-ui, sans-serif";
+  context.fillText("WHO WILL WIN?", layout.width / 2, bandY + 178);
+  context.restore();
+}
+
 function mapPoint(point: Vec2, arena: ArenaConfig, rect: Rect): Vec2 {
   return {
     x: rect.x + (point.x / arena.width) * rect.width,
@@ -863,7 +932,9 @@ function projectileColor(weaponId: WeaponId): string {
     case "emp":
       return "#a9fffd";
     case "railgun":
-      return "#ffdd78";
+      return "#36e0ff";
+    case "rocket":
+      return "#ff6a3d";
     case "shotgun":
       return "#ffd166";
     case "shield":
@@ -984,6 +1055,26 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
       context.moveTo(-18, 10);
       context.lineTo(18, 10);
       context.stroke();
+      break;
+    case "rocket":
+      context.rotate(-0.35);
+      context.beginPath();
+      context.moveTo(22, 0);
+      context.lineTo(2, -10);
+      context.lineTo(-16, -10);
+      context.lineTo(-16, 10);
+      context.lineTo(2, 10);
+      context.closePath();
+      context.fill();
+      context.fillStyle = "#ffdd78";
+      context.beginPath();
+      context.moveTo(-16, -6);
+      context.lineTo(-28, -10);
+      context.lineTo(-22, 0);
+      context.lineTo(-28, 10);
+      context.lineTo(-16, 6);
+      context.closePath();
+      context.fill();
       break;
   }
 

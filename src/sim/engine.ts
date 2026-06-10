@@ -1,4 +1,4 @@
-import { createMovementDice, createWeaponDice, getClass, getWeapon } from "./catalog";
+import { cloneWeapons, createMovementDice, createWeaponDice, getClass, getWeapon, getWeaponFrom } from "./catalog";
 import { createRng, weightedRoll } from "./random";
 import type {
   EffectFrame,
@@ -28,6 +28,7 @@ type RobotState = RobotFrame & {
   cooldowns: Partial<Record<WeaponId, number>>;
   intent: MovementId;
   moveDeviation: number;
+  lastCollisionAt: number;
 };
 
 type ProjectileState = ProjectileFrame & {
@@ -40,6 +41,9 @@ type ProjectileState = ProjectileFrame & {
   knockback: number;
   curve: number;
   lastTrailAt: number;
+  acceleration: number;
+  explosive: boolean;
+  explosionRadius: number;
 };
 
 type PendingStrike = {
@@ -55,9 +59,14 @@ type PendingStrike = {
 
 const ROBOT_RADIUS = 36;
 const WINNER_SCREEN_SECONDS = 2;
+const RAILGUN_BEAM_LENGTH = 2600;
+const ROCKET_ACCELERATION = 3.1;
+const ROCKET_MAX_SPEED = 1500;
+const COLLISION_DAMAGE_COOLDOWN = 0.45;
 
 export function simulateFight(config: FightConfig): FightResult {
   const rng = createRng(`${config.seed}:${config.robots.map((robot) => robot.id).join("|")}`);
+  const weapons = config.weapons?.length ? config.weapons : cloneWeapons();
   const robots = createInitialRobots(config);
   const projectiles: ProjectileState[] = [];
   const pendingStrikes: PendingStrike[] = [];
@@ -132,7 +141,7 @@ export function simulateFight(config: FightConfig): FightResult {
             robot.weaponDice.filter((die) => robot.arsenal.includes(die.id))
           );
           const weaponId = weaponRoll.id;
-          const weapon = getWeapon(weaponId);
+          const weapon = getWeaponFrom(weapons, weaponId);
 
           if ((robot.cooldowns[weaponId] ?? 0) <= time) {
             fireWeapon({
@@ -163,9 +172,9 @@ export function simulateFight(config: FightConfig): FightResult {
         integrateRobot(robot, config, tickStep);
       }
 
-      resolveRobotCollisions(robots);
+      resolveRobotCollisions(robots, effects, events, damageByRobot, time);
       updatePendingStrikes(pendingStrikes, robots, effects, events, damageByRobot, time);
-      updateProjectiles(projectiles, robots, effects, events, damageByRobot, time, tickStep);
+      updateProjectiles(projectiles, robots, config.arena, effects, events, damageByRobot, time, tickStep);
       rechargeShields(robots, tickStep);
       pruneEffects(effects, time);
     } else {
@@ -246,6 +255,7 @@ function createInitialRobots(config: FightConfig): RobotState[] {
       cooldowns: {},
       intent: "hold",
       moveDeviation: ((index % 2 === 0 ? 7 : -7) * Math.PI) / 180,
+      lastCollisionAt: -1,
     };
   });
 }
@@ -297,7 +307,15 @@ function applyMovement(
     robot.position.y > config.arena.height - 90;
   const vector = rotateVector(nearWall ? boundaryVector : movementVector[robot.intent], robot.moveDeviation);
   robot.velocity = add(robot.velocity, mul(vector, robotClass.speed * dt));
-  robot.angle = angleTo(robot.position, target.position);
+  robot.angle = turnToward(robot.angle, angleTo(robot.position, target.position), robotClass.turnSpeed * dt);
+}
+
+function turnToward(current: number, desired: number, maxStep: number): number {
+  let delta = desired - current;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  const step = clamp(delta, -maxStep, maxStep);
+  return current + step;
 }
 
 function integrateRobot(robot: RobotState, config: FightConfig, dt: number) {
@@ -323,7 +341,13 @@ function integrateRobot(robot: RobotState, config: FightConfig, dt: number) {
   robot.position = { x: clampedX, y: clampedY };
 }
 
-function resolveRobotCollisions(robots: RobotState[]) {
+function resolveRobotCollisions(
+  robots: RobotState[],
+  effects: EffectFrame[],
+  events: FightEvent[],
+  damageByRobot: Record<string, number>,
+  time: number
+) {
   for (let leftIndex = 0; leftIndex < robots.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < robots.length; rightIndex += 1) {
       const left = robots[leftIndex];
@@ -354,14 +378,60 @@ function resolveRobotCollisions(robots: RobotState[]) {
       const impactSpeed = relativeVelocity.x * normal.x + relativeVelocity.y * normal.y;
 
       if (impactSpeed < 0) {
-        const impulse = (-(1.15) * impactSpeed) / (1 / leftClass.mass + 1 / rightClass.mass);
+        const impulse = (-(1.35) * impactSpeed) / (1 / leftClass.mass + 1 / rightClass.mass);
         left.velocity = add(left.velocity, mul(normal, -impulse / leftClass.mass));
         right.velocity = add(right.velocity, mul(normal, impulse / rightClass.mass));
+
+        const hardEnough = -impactSpeed > 0.9;
+        const ready =
+          time - left.lastCollisionAt >= COLLISION_DAMAGE_COOLDOWN &&
+          time - right.lastCollisionAt >= COLLISION_DAMAGE_COOLDOWN;
+        if (hardEnough && ready) {
+          const contact = add(left.position, mul(normal, ROBOT_RADIUS));
+          applyCollisionDamage(right, left, leftClass.impactDamage, time, events, damageByRobot, effects);
+          applyCollisionDamage(left, right, rightClass.impactDamage, time, events, damageByRobot, effects);
+          effects.push(createEffect("spark", contact, 30, time, "#fff4cf"));
+          left.lastCollisionAt = time;
+          right.lastCollisionAt = time;
+        }
       } else {
         left.velocity = add(left.velocity, mul(normal, -18 / leftClass.mass));
         right.velocity = add(right.velocity, mul(normal, 18 / rightClass.mass));
       }
     }
+  }
+}
+
+function applyCollisionDamage(
+  attacker: RobotState,
+  target: RobotState,
+  rawDamage: number,
+  time: number,
+  events: FightEvent[],
+  damageByRobot: Record<string, number>,
+  effects: EffectFrame[]
+) {
+  if (rawDamage <= 0) {
+    return;
+  }
+
+  const targetClass = target.classProfile;
+  const shieldAbsorb = Math.min(target.shield, rawDamage * 0.6);
+  target.shield -= shieldAbsorb;
+  const damage = Math.max(1, (rawDamage - shieldAbsorb) * (1 - targetClass.armor));
+  target.hp = Math.max(0, target.hp - damage);
+  attacker.damageDone += damage;
+  damageByRobot[attacker.id] += damage;
+
+  const direction = normalize(sub(target.position, attacker.position));
+  events.push({ type: "sound", time, sound: "impact" });
+  addDamageBits(effects, target.position, direction, target.palette, time, "ray", 5);
+
+  if (target.hp <= 0 && target.alive) {
+    target.alive = false;
+    effects.push(createEffect("explosion", target.position, 170, time, target.palette.glow));
+    addDamageBits(effects, target.position, direction, target.palette, time, "ray", 40);
+    events.push({ type: "death", time, robotId: target.id, killerId: attacker.id, sound: "explosion" });
   }
 }
 
@@ -428,6 +498,34 @@ function fireWeapon(input: {
     return;
   }
 
+  if (weapon.id === "rocket") {
+    projectiles.push({
+      id: `rocket-${attacker.id}-${time.toFixed(2)}`,
+      ownerId: attacker.id,
+      targetId: target.id,
+      weaponId: weapon.id,
+      position: add(attacker.position, mul(direction, ROBOT_RADIUS + 6)),
+      velocity: mul(direction, weapon.projectileSpeed),
+      damage: weapon.damage,
+      radius: weapon.radius,
+      homing: 0,
+      knockback: weapon.knockback,
+      curve: 0,
+      lastTrailAt: time,
+      age: 0,
+      expiresAt: time + 5,
+      acceleration: ROCKET_ACCELERATION,
+      explosive: true,
+      explosionRadius: weapon.radius + 78,
+    });
+    effects.push(
+      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 16)), weapon.radius + 20, time, "#ff8f4f", {
+        weaponId: weapon.id,
+      })
+    );
+    return;
+  }
+
   if (weapon.kind === "projectile") {
     const arcSign = rngNext() > 0.5 ? 1 : -1;
     const side = rotate90(direction, arcSign);
@@ -449,6 +547,9 @@ function fireWeapon(input: {
       lastTrailAt: time,
       age: 0,
       expiresAt: time + (weapon.id === "missile" ? 3 : 4.2),
+      acceleration: 0,
+      explosive: false,
+      explosionRadius: 0,
     });
     effects.push(
       createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), weapon.radius + 24, time, "#ffdd78", {
@@ -478,6 +579,9 @@ function fireWeapon(input: {
         lastTrailAt: time,
         age: 0,
         expiresAt: time + 0.48,
+        acceleration: 0,
+        explosive: false,
+        explosionRadius: 0,
       });
     }
     effects.push(
@@ -527,6 +631,7 @@ function fireWeapon(input: {
         weaponId: weapon.id,
       })
     );
+    addElectricParticles(effects, attacker.position, time, weapon.radius + 96);
   } else {
     effects.push(
       createEffect("beam", attacker.position, 10, time, attacker.palette.glow, {
@@ -549,6 +654,7 @@ function fireWeapon(input: {
 function updateProjectiles(
   projectiles: ProjectileState[],
   robots: RobotState[],
+  arena: FightConfig["arena"],
   effects: EffectFrame[],
   events: FightEvent[],
   damageByRobot: Record<string, number>,
@@ -561,6 +667,14 @@ function updateProjectiles(
     const target = robots.find((robot) => robot.id === projectile.targetId);
 
     projectile.age += dt;
+
+    if (projectile.acceleration > 0) {
+      const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
+      const nextSpeed = Math.min(ROCKET_MAX_SPEED, speed * (1 + projectile.acceleration * dt));
+      if (speed > 0.001) {
+        projectile.velocity = mul(projectile.velocity, nextSpeed / speed);
+      }
+    }
 
     if (projectile.curve !== 0 && projectile.age < 1.15) {
       const side = rotate90(normalize(projectile.velocity), projectile.curve > 0 ? 1 : -1);
@@ -592,6 +706,19 @@ function updateProjectiles(
       );
     }
 
+    const hitWall =
+      projectile.explosive &&
+      (projectile.position.x <= projectile.radius ||
+        projectile.position.y <= projectile.radius ||
+        projectile.position.x >= arena.width - projectile.radius ||
+        projectile.position.y >= arena.height - projectile.radius);
+
+    if (hitWall) {
+      detonateRocket(projectile, owner, robots, effects, events, damageByRobot, time);
+      projectiles.splice(index, 1);
+      continue;
+    }
+
     const hitRobot = robots.find(
       (robot) =>
         robot.alive &&
@@ -600,24 +727,72 @@ function updateProjectiles(
     );
 
     if (owner && hitRobot) {
-      const projectileWeapon = {
-        ...getWeapon(projectile.weaponId),
-        damage: projectile.damage,
-        knockback: projectile.knockback,
-      };
-      applyDamage(owner, hitRobot, projectileWeapon, time, events, damageByRobot, effects);
-      effects.push(
-        createEffect("explosion", projectile.position, projectile.radius + 32, time, owner.palette.glow, {
-          weaponId: projectile.weaponId,
-        })
-      );
+      if (projectile.explosive) {
+        detonateRocket(projectile, owner, robots, effects, events, damageByRobot, time);
+      } else {
+        const projectileWeapon = {
+          ...getWeapon(projectile.weaponId),
+          damage: projectile.damage,
+          knockback: projectile.knockback,
+        };
+        applyDamage(owner, hitRobot, projectileWeapon, time, events, damageByRobot, effects);
+        effects.push(
+          createEffect("explosion", projectile.position, projectile.radius + 32, time, owner.palette.glow, {
+            weaponId: projectile.weaponId,
+          })
+        );
+      }
       projectiles.splice(index, 1);
       continue;
     }
 
     if (time >= projectile.expiresAt) {
+      if (projectile.explosive) {
+        detonateRocket(projectile, owner, robots, effects, events, damageByRobot, time);
+      }
       projectiles.splice(index, 1);
     }
+  }
+}
+
+function detonateRocket(
+  projectile: ProjectileState,
+  owner: RobotState | undefined,
+  robots: RobotState[],
+  effects: EffectFrame[],
+  events: FightEvent[],
+  damageByRobot: Record<string, number>,
+  time: number
+) {
+  effects.push(
+    createEffect("explosion", projectile.position, projectile.explosionRadius + 30, time, "#ff8f4f", {
+      weaponId: "rocket",
+    })
+  );
+  events.push({ type: "sound", time, sound: "explosion" });
+  addDamageBits(effects, projectile.position, { x: 0, y: -1 }, { body: "#ff8f4f", trim: "#ffdd78", glow: "#ffffff" }, time, "rocket", 18);
+
+  if (!owner) {
+    return;
+  }
+
+  for (const robot of robots) {
+    if (!robot.alive || robot.id === projectile.ownerId) {
+      continue;
+    }
+
+    const gap = distance(robot.position, projectile.position);
+    if (gap > projectile.explosionRadius) {
+      continue;
+    }
+
+    const falloff = Math.max(0.4, 1 - gap / projectile.explosionRadius);
+    const splashWeapon = {
+      ...getWeapon("rocket"),
+      damage: projectile.damage * falloff,
+      knockback: projectile.knockback * falloff,
+    };
+    applyDamage(owner, robot, splashWeapon, time, events, damageByRobot, effects);
   }
 }
 
@@ -726,11 +901,13 @@ function updatePendingStrikes(
     }
 
     const startPosition = attacker?.position ?? strike.aimPosition;
-    const fireDirection = normalize(sub(strike.aimPosition, startPosition));
-    const endPosition = add(startPosition, mul(fireDirection, strike.weapon.range));
+    const fireDirection = attacker
+      ? { x: Math.cos(attacker.angle), y: Math.sin(attacker.angle) }
+      : normalize(sub(strike.aimPosition, startPosition));
+    const endPosition = add(startPosition, mul(fireDirection, RAILGUN_BEAM_LENGTH));
 
     effects.push(
-      createEffect("beam", startPosition, 30, time, "#ffdd78", {
+      createEffect("beam", startPosition, 30, time, "#36e0ff", {
         endPosition,
         weaponId: strike.weapon.id,
       })
@@ -746,7 +923,7 @@ function updatePendingStrikes(
       );
     } else {
       effects.push(
-        createEffect("spark", endPosition, 24, time, "#ffdd78", {
+        createEffect("spark", endPosition, 24, time, "#36e0ff", {
           weaponId: strike.weapon.id,
         })
       );
@@ -781,6 +958,39 @@ function addDamageBits(
         velocity: mul(outward, speed),
         weaponId,
         spin: (index % 2 === 0 ? 1 : -1) * (2.5 + index * 0.17),
+        variant: index % 3,
+      })
+    );
+  }
+}
+
+function addElectricParticles(
+  effects: EffectFrame[],
+  position: Vec2,
+  time: number,
+  radius: number
+) {
+  const colors = ["#a9fffd", "#7ef7c7", "#d7f8ff", "#ffffff"];
+  const arcCount = 12;
+
+  for (let index = 0; index < arcCount; index += 1) {
+    const angle = (Math.PI * 2 * index) / arcCount;
+    const reach = radius * (0.5 + (index % 3) * 0.18);
+    const tip = {
+      x: position.x + Math.cos(angle) * reach,
+      y: position.y + Math.sin(angle) * reach,
+    };
+    effects.push(
+      createEffect("beam", position, 4, time, colors[index % colors.length], {
+        endPosition: tip,
+        weaponId: "emp",
+      })
+    );
+    effects.push(
+      createEffect("bit", tip, 4 + (index % 3), time, colors[index % colors.length], {
+        velocity: { x: Math.cos(angle) * 150, y: Math.sin(angle) * 150 },
+        weaponId: "emp",
+        spin: (index % 2 === 0 ? 1 : -1) * 6,
         variant: index % 3,
       })
     );
@@ -864,14 +1074,13 @@ function captureFrame(
     ...pendingStrikes
       .map((strike): EffectFrame | undefined => {
         const attacker = robots.find((robot) => robot.id === strike.attackerId);
-        const target = robots.find((robot) => robot.id === strike.targetId);
 
         if (!attacker || time > strike.resolvesAt) {
           return undefined;
         }
 
-        const tracking = time < strike.lockedAt && target?.alive;
-        const aimPosition = tracking ? target.position : strike.aimPosition;
+        const aimDirection = { x: Math.cos(attacker.angle), y: Math.sin(attacker.angle) };
+        const aimPosition = add(attacker.position, mul(aimDirection, RAILGUN_BEAM_LENGTH));
 
         return {
           id: `${strike.id}-telegraph-${time}`,
@@ -882,7 +1091,7 @@ function captureFrame(
           radius: 14,
           age: Math.max(0, time - strike.createdAt),
           duration: strike.resolvesAt - strike.createdAt,
-          color: "#ffdd78",
+          color: "#36e0ff",
         };
       })
       .filter((effect): effect is EffectFrame => effect !== undefined),
@@ -973,6 +1182,7 @@ export function cloneFightConfig(config: FightConfig): FightConfig {
       aggressive: config.movementProfiles.aggressive.map((die) => ({ ...die })),
       evasive: config.movementProfiles.evasive.map((die) => ({ ...die })),
     },
+    weapons: (config.weapons ?? []).map((weapon) => ({ ...weapon })),
     robots: config.robots.map((robot: RobotConfig) => ({
       ...robot,
       palette: { ...robot.palette },

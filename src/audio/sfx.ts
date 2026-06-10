@@ -78,6 +78,10 @@ function playSound(
     case "emp":
       tone(context, output, when, 0.45, 70, 48, "sawtooth", 0.12);
       tone(context, output, when, 0.12, 1200, 330, "square", 0.05);
+      // electric crackle
+      tone(context, output, when, 0.3, 2400, 140, "square", 0.06);
+      noiseBurst(context, output, when, 0.34, 3200, 0.12);
+      noiseBurst(context, output, when + 0.08, 0.22, 2200, 0.08);
       break;
     case "winner":
       tone(context, output, when, 0.18, 330, 392, "triangle", 0.08);
