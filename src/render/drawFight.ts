@@ -17,6 +17,9 @@ const FIELD_PADDING_X = 64;
 const FIELD_GAP_TOP = 28;
 const FIELD_GAP_BOTTOM = 44;
 const ROBOT_RADIUS = 38;
+// How long the movement slot / weapon list visibly spins after each pick before
+// locking onto the result. Matches the half-second display window in the brief.
+const SLOT_SPIN_SECONDS = 0.5;
 
 type Layout = {
   width: number;
@@ -31,12 +34,6 @@ type Rect = {
   y: number;
   width: number;
   height: number;
-};
-
-type ActionRoll = {
-  event: Extract<FightEvent, { type: "movement" | "weapon" }>;
-  value: number;
-  count: number;
 };
 
 export function drawFightFrame(
@@ -853,119 +850,183 @@ function drawBotActionPanel(
   const config = result.config.robots.find((candidate) => candidate.id === robot.id);
   const movement = latestMovement(result.events, robot.id, time);
   const weapon = latestWeapon(result.events, robot.id, time);
-  const activeRoll = getActiveRoll(config, weapon, movement, time);
 
   context.save();
   context.fillStyle = "rgba(255, 250, 240, 0.08)";
   context.strokeStyle = robot.palette.glow;
-  context.lineWidth = activeRoll ? 4 : 2;
+  context.lineWidth = 2;
   context.beginPath();
-  context.roundRect(rect.x, rect.y, rect.width, rect.height, 8);
+  context.roundRect(rect.x, rect.y, rect.width, rect.height, 10);
   context.fill();
   context.stroke();
 
   context.fillStyle = robot.palette.body;
   context.fillRect(rect.x, rect.y, 9, rect.height);
 
+  const padX = rect.x + 24;
+  const innerWidth = rect.width - 48;
+
+  // Class name.
   context.textAlign = "left";
-  drawDice(context, activeRoll, time, {
-    x: rect.x + rect.width - 104,
-    y: rect.y + 14,
-    width: 84,
-    height: 84,
+  context.fillStyle = "#fff7e6";
+  context.font = "900 24px Inter, system-ui, sans-serif";
+  context.fillText(getClassName(robot.classId), padX, rect.y + 32);
+
+  // Movement slot.
+  context.fillStyle = "#9feee2";
+  context.font = "800 14px Inter, system-ui, sans-serif";
+  context.fillText("MOVEMENT", padX, rect.y + 58);
+  drawMovementSlot(
+    context,
+    config?.movementDice.map((die) => die.id) ?? [robot.lastMove],
+    movement,
+    robot,
+    time,
+    { x: padX, y: rect.y + 66, width: innerWidth, height: 70 }
+  );
+
+  // Weapon list.
+  context.fillStyle = "#ffdd78";
+  context.font = "800 14px Inter, system-ui, sans-serif";
+  context.fillText("WEAPONS", padX, rect.y + 162);
+  context.textAlign = "right";
+  context.fillStyle = "#fff7e6";
+  context.font = "900 16px Inter, system-ui, sans-serif";
+  context.fillText(
+    robot.lastWeapon ? getWeaponName(robot.lastWeapon) : "Waiting",
+    padX + innerWidth,
+    rect.y + 162
+  );
+  drawWeaponList(context, config?.arsenal ?? [], weapon, robot.palette.glow, time, {
+    x: padX,
+    y: rect.y + 172,
+    width: innerWidth,
+    height: 72,
   });
 
-  context.fillStyle = "#9feee2";
-  context.font = "800 16px Inter, system-ui, sans-serif";
-  context.fillText(getClassName(robot.classId), rect.x + 22, rect.y + 32);
-  context.fillStyle = "#9feee2";
-  context.font = "800 16px Inter, system-ui, sans-serif";
-  context.fillText("MOVE", rect.x + 22, rect.y + 74);
-  context.fillStyle = "#ffffff";
-  context.font = "900 24px Inter, system-ui, sans-serif";
-  context.fillText(formatMovement(robot.lastMove), rect.x + 22, rect.y + 104);
-
-  context.fillStyle = "#ffdd78";
-  context.font = "800 16px Inter, system-ui, sans-serif";
-  context.fillText("ACTION", rect.x + 22, rect.y + 138);
-  context.fillStyle = "#ffffff";
-  context.font = "900 22px Inter, system-ui, sans-serif";
-  context.fillText(robot.lastWeapon ? getWeaponName(robot.lastWeapon) : "Waiting", rect.x + 22, rect.y + 166);
-
-  drawLoadout(context, config?.arsenal ?? [], rect, robot.palette.glow, robot.lastWeapon);
   context.restore();
 }
 
-function drawDice(
+// Slot-machine style reel: the movement labels scroll vertically, spinning fast
+// for the first half-second after each pick before easing to a stop on the
+// chosen move.
+function drawMovementSlot(
   context: CanvasRenderingContext2D,
-  roll: ActionRoll | undefined,
+  moves: MovementId[],
+  event: Extract<FightEvent, { type: "movement" }> | undefined,
+  robot: RobotFrame,
   time: number,
   rect: Rect
 ) {
-  const age = roll ? time - roll.event.time : 2;
-  const animating = roll !== undefined && age < 0.5;
-  const value = roll
-    ? animating
-      ? ((Math.floor(age * 22) % roll.count) + 1)
-      : roll.value
-    : 0;
-  const total = roll?.count ?? 0;
+  const list = moves.length > 0 ? moves : [robot.lastMove];
+  const selectedId = event?.movement ?? robot.lastMove;
+  const selectedIndex = Math.max(0, list.indexOf(selectedId));
+  const age = event ? time - event.time : 99;
+  const spinning = age >= 0 && age < SLOT_SPIN_SECONDS;
+
+  // Reel position: lands exactly on selectedIndex once settled.
+  let position = selectedIndex;
+  if (spinning && list.length > 1) {
+    const t = age / SLOT_SPIN_SECONDS;
+    const eased = 1 - Math.pow(1 - t, 3);
+    position = selectedIndex - list.length * 4 * (1 - eased);
+  }
 
   context.save();
-  context.translate(rect.x + rect.width / 2, rect.y + rect.height / 2);
-  if (animating) {
-    context.rotate(Math.sin(age * 36) * 0.16);
-  }
-  context.fillStyle = animating ? "#ffdd78" : "#fff7e6";
-  context.strokeStyle = "#202b35";
-  context.lineWidth = 4;
+  context.fillStyle = "rgba(8, 13, 19, 0.92)";
+  context.strokeStyle = spinning ? "#ffdd78" : robot.palette.glow;
+  context.lineWidth = spinning ? 3 : 2;
   context.beginPath();
-  context.roundRect(-rect.width / 2, -rect.height / 2, rect.width, rect.height, 8);
+  context.roundRect(rect.x, rect.y, rect.width, rect.height, 8);
   context.fill();
   context.stroke();
-  context.fillStyle = "#202b35";
+  context.clip();
+
+  const centerX = rect.x + rect.width / 2;
+  const centerY = rect.y + rect.height / 2;
+  const base = Math.floor(position);
   context.textAlign = "center";
-  context.font = "900 19px Inter, system-ui, sans-serif";
-  context.fillText(value && total ? `${value}/${total}` : "--", 0, 7);
+  context.textBaseline = "middle";
+  for (let offset = -1; offset <= 1; offset += 1) {
+    const slot = base + offset;
+    const wrapped = ((slot % list.length) + list.length) % list.length;
+    const y = centerY + (slot - position) * rect.height;
+    const distance = Math.abs(slot - position);
+    context.globalAlpha = Math.max(0, 1 - distance * 0.85);
+    context.fillStyle = distance < 0.5 ? "#fff7e6" : "#7fb8c4";
+    context.font = distance < 0.5 ? "900 26px Inter, system-ui, sans-serif" : "800 20px Inter, system-ui, sans-serif";
+    context.fillText(formatMovement(list[wrapped]), centerX, y);
+  }
+  context.globalAlpha = 1;
+  context.textBaseline = "alphabetic";
+  context.restore();
+
+  // Center selection guides.
+  context.save();
+  context.strokeStyle = spinning ? "rgba(255, 221, 120, 0.6)" : "rgba(159, 238, 226, 0.45)";
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(rect.x + 6, rect.y + rect.height / 2 - 18);
+  context.lineTo(rect.x + 6, rect.y + rect.height / 2 + 18);
+  context.moveTo(rect.x + rect.width - 6, rect.y + rect.height / 2 - 18);
+  context.lineTo(rect.x + rect.width - 6, rect.y + rect.height / 2 + 18);
+  context.stroke();
   context.restore();
 }
 
-function drawLoadout(
+// Horizontal list of every weapon in the arsenal. After each pick the highlight
+// flickers across the tiles slot-style, then settles on the executed weapon.
+function drawWeaponList(
   context: CanvasRenderingContext2D,
   arsenal: WeaponId[],
-  rect: Rect,
+  event: Extract<FightEvent, { type: "weapon" }> | undefined,
   accent: string,
-  selectedWeapon?: WeaponId
+  time: number,
+  rect: Rect
 ) {
-  const iconSize = 86;
-  const gap = 12;
-  const startX = rect.x + 22;
-  let x = startX;
-  let y = rect.y + 198;
+  const list = arsenal.slice(0, 6);
+  if (list.length === 0) {
+    return;
+  }
 
-  for (const weaponId of arsenal.slice(0, 6)) {
-    if (x + iconSize > rect.x + rect.width - 18) {
-      x = startX;
-      y += iconSize + gap;
+  const selectedIndex = event ? Math.max(0, list.indexOf(event.weaponId)) : -1;
+  const age = event ? time - event.time : 99;
+  const spinning = age >= 0 && age < SLOT_SPIN_SECONDS;
+  const highlightIndex = spinning
+    ? Math.floor((age / SLOT_SPIN_SECONDS) * list.length * 4) % list.length
+    : selectedIndex;
+
+  const gap = 10;
+  const tileSize = Math.min(rect.height, (rect.width - gap * (list.length - 1)) / list.length);
+  const totalWidth = tileSize * list.length + gap * (list.length - 1);
+  let x = rect.x + (rect.width - totalWidth) / 2;
+  const y = rect.y + (rect.height - tileSize) / 2;
+
+  list.forEach((weaponId, index) => {
+    const active = index === highlightIndex;
+    context.save();
+    context.fillStyle = active ? "rgba(255, 221, 120, 0.24)" : "rgba(255, 255, 255, 0.08)";
+    context.strokeStyle = active ? "#ffdd78" : accent;
+    context.lineWidth = active ? 3 : 1.5;
+    if (active && spinning) {
+      context.shadowBlur = 16;
+      context.shadowColor = "#ffdd78";
     }
-
-    const selected = weaponId === selectedWeapon;
-    context.fillStyle = selected ? "rgba(255, 221, 120, 0.22)" : "rgba(255,255,255,0.12)";
-    context.strokeStyle = selected ? "#ffdd78" : accent;
-    context.lineWidth = selected ? 3 : 1.5;
     context.beginPath();
-    context.roundRect(x, y, iconSize, iconSize, 8);
+    context.roundRect(x, y, tileSize, tileSize, 8);
     context.fill();
     context.stroke();
-    drawWeaponIcon(context, weaponId, {
-      x,
-      y,
-      width: iconSize,
-      height: iconSize,
-    });
+    context.restore();
 
-    x += iconSize + gap;
-  }
+    context.save();
+    if (!active) {
+      context.globalAlpha = 0.7;
+    }
+    drawWeaponIcon(context, weaponId, { x, y, width: tileSize, height: tileSize });
+    context.restore();
+
+    x += tileSize + gap;
+  });
 }
 
 function drawWinnerCard(
@@ -1175,37 +1236,6 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
   }
 
   context.restore();
-}
-
-function getActiveRoll(
-  config: FightResult["config"]["robots"][number] | undefined,
-  weapon: Extract<FightEvent, { type: "weapon" }> | undefined,
-  movement: Extract<FightEvent, { type: "movement" }> | undefined,
-  time: number
-): ActionRoll | undefined {
-  if (weapon && time - weapon.time <= 1.2) {
-    const items = config?.arsenal ?? [];
-    const count = Math.max(1, items.length);
-    const selectedIndex = Math.max(0, items.indexOf(weapon.weaponId));
-    return {
-      event: weapon,
-      value: selectedIndex + 1,
-      count,
-    };
-  }
-
-  if (movement && time - movement.time <= 1.2) {
-    const moves = config?.movementDice.map((die) => die.id) ?? [];
-    const count = Math.max(1, moves.length);
-    const selectedIndex = Math.max(0, moves.indexOf(movement.movement));
-    return {
-      event: movement,
-      value: selectedIndex + 1,
-      count,
-    };
-  }
-
-  return undefined;
 }
 
 function healthShakeFor(robotId: string, time: number, events: FightEvent[]): number {

@@ -88,6 +88,16 @@ const ROCKET_ACCELERATION = 3.1;
 const ROCKET_MAX_SPEED = 1500;
 const COLLISION_DAMAGE_COOLDOWN = 0.45;
 const KNOCKBACK_MULTIPLIER = 2.1;
+// The movement slot picks a new move every second; the weapon list picks a new
+// action every two seconds. Both cadences are fixed so the on-screen slot/list
+// stay perfectly in sync with what actually executes.
+const MOVE_INTERVAL = 1;
+const WEAPON_INTERVAL = 2;
+// Railgun charge sequence (telegraph -> lock -> beam). The weapon roll pauses
+// until the whole sequence is over instead of rolling again mid-charge.
+const RAILGUN_CHARGE_SECONDS = 1;
+const RAILGUN_RESOLVE_SECONDS = 0.3;
+const RAILGUN_PAUSE_BUFFER = 0.5;
 
 export function simulateFight(config: FightConfig): FightResult {
   const rng = createRng(`${config.seed}:${config.robots.map((robot) => robot.id).join("|")}`);
@@ -148,7 +158,7 @@ export function simulateFight(config: FightConfig): FightResult {
           robot.intent = movementRoll.id;
           robot.moveDeviation = ((rng.next() * 20 - 10) * Math.PI) / 180;
           robot.lastMove = robot.intent;
-          robot.nextMoveAt = time + 0.85 + rng.next() * 0.95;
+          robot.nextMoveAt = time + MOVE_INTERVAL;
           events.push({
             type: "movement",
             time,
@@ -162,15 +172,21 @@ export function simulateFight(config: FightConfig): FightResult {
         applyMovement(robot, target, config, tickStep);
 
         if (time >= robot.nextWeaponAt) {
-          const weaponRoll = weightedRoll(
-            rng,
-            robot.weaponDice.filter((die) => robot.arsenal.includes(die.id))
+          // Only roll among weapons that are off cooldown, so the picked action
+          // can always execute on its 2-second beat.
+          const ready = robot.weaponDice.filter(
+            (die) => robot.arsenal.includes(die.id) && (robot.cooldowns[die.id] ?? 0) <= time
           );
-          const weaponId = weaponRoll.id;
-          const weapon = getWeaponFrom(weapons, weaponId);
 
-          if ((robot.cooldowns[weaponId] ?? 0) <= time) {
-            const fired = fireWeapon({
+          if (ready.length === 0) {
+            // Everything is still cooling down; check back shortly.
+            robot.nextWeaponAt = time + 0.2;
+          } else {
+            const weaponRoll = weightedRoll(rng, ready);
+            const weaponId = weaponRoll.id;
+            const weapon = getWeaponFrom(weapons, weaponId);
+
+            fireWeapon({
               weapon,
               attacker: robot,
               target,
@@ -187,16 +203,14 @@ export function simulateFight(config: FightConfig): FightResult {
               robots,
               damageByRobot,
             });
-            if (fired) {
-              robot.lastWeapon = weaponId;
-              robot.cooldowns[weaponId] = time + weapon.cooldown;
-              robot.nextWeaponAt = time + 0.7 + rng.next() * 0.8;
-            } else {
-              // Out of range / couldn't fire: retry shortly without burning cooldown.
-              robot.nextWeaponAt = time + 0.25;
-            }
-          } else {
-            robot.nextWeaponAt = time + 0.25;
+            robot.lastWeapon = weaponId;
+            robot.cooldowns[weaponId] = time + weapon.cooldown;
+            // Railgun pauses the roll until its charge + strike resolves;
+            // everything else advances on the steady 2-second beat.
+            robot.nextWeaponAt =
+              weaponId === "railgun"
+                ? time + RAILGUN_CHARGE_SECONDS + RAILGUN_RESOLVE_SECONDS + RAILGUN_PAUSE_BUFFER
+                : time + WEAPON_INTERVAL;
           }
         }
       }
@@ -505,10 +519,6 @@ function fireWeapon(input: {
   } = input;
   const targetDistance = distance(attacker.position, target.position);
 
-  if (weapon.kind !== "defense" && targetDistance > weapon.range) {
-    return false;
-  }
-
   // Weapons fire along the bot's current facing, not straight at the target,
   // so the bot's (slow) rotation determines whether a shot actually connects.
   const direction = { x: Math.cos(attacker.angle), y: Math.sin(attacker.angle) };
@@ -713,8 +723,8 @@ function fireWeapon(input: {
       targetId: target.id,
       aimPosition: { ...target.position },
       createdAt: time,
-      lockedAt: time + 1,
-      resolvesAt: time + 1.3,
+      lockedAt: time + RAILGUN_CHARGE_SECONDS,
+      resolvesAt: time + RAILGUN_CHARGE_SECONDS + RAILGUN_RESOLVE_SECONDS,
     });
     return true;
   }
