@@ -8,6 +8,18 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    files: ["server/**/*.ts", "scripts/**/*.mjs", "eslint.config.js"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: {
+        Buffer: "readonly",
+        console: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+      },
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2020,
