@@ -596,7 +596,7 @@ function fireWeapon(input: {
   });
 
   if (weapon.kind === "defense") {
-    attacker.shield = clamp(attacker.shield + 28, 0, attacker.maxShield + 34);
+    attacker.shield = clamp(attacker.shield + 22.4, 0, attacker.maxShield + 34);
     effects.push(
       createEffect("shield", attacker.position, weapon.radius + 16, time, attacker.palette.glow, {
         weaponId: weapon.id,
@@ -1703,11 +1703,12 @@ export function cloneFightConfig(config: FightConfig): FightConfig {
       palette: { ...robotClass.palette },
       arsenal: [...robotClass.arsenal],
     })),
-    movementProfiles: {
-      balanced: config.movementProfiles.balanced.map((die) => ({ ...die })),
-      aggressive: config.movementProfiles.aggressive.map((die) => ({ ...die })),
-      evasive: config.movementProfiles.evasive.map((die) => ({ ...die })),
-    },
+    movementProfiles: Object.fromEntries(
+      Object.entries(config.movementProfiles).map(([profileId, dice]) => [
+        profileId,
+        dice.map((die) => ({ ...die })),
+      ])
+    ) as FightConfig["movementProfiles"],
     weapons: (config.weapons ?? []).map((weapon) => ({ ...weapon })),
     robots: config.robots.map((robot: RobotConfig) => ({
       ...robot,

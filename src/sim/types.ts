@@ -41,7 +41,13 @@ export type MovementId =
   | "hold"
   | "evade";
 
-export type MovementProfileId = "balanced" | "aggressive" | "evasive";
+export type MovementProfileId =
+  | "balanced"
+  | "aggressive"
+  | "evasive"
+  | "stationary"
+  | "flanker"
+  | "charger";
 
 export type MovementProfileMap = Record<MovementProfileId, WeightedDie<MovementId>[]>;
 

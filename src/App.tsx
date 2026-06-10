@@ -78,6 +78,18 @@ const MOVEMENT_PROFILE_LABELS: Record<MovementProfileId, string> = {
   balanced: "Balanced",
   aggressive: "Aggressive",
   evasive: "Evasive",
+  stationary: "Stationary",
+  flanker: "Flanker",
+  charger: "Charger",
+};
+
+const MOVEMENT_PROFILE_COLORS: Record<MovementProfileId, string> = {
+  balanced: "#8b5cf6",
+  aggressive: "#ef4f64",
+  evasive: "#2d9cdb",
+  stationary: "#5f6b76",
+  flanker: "#187b70",
+  charger: "#ff8f4f",
 };
 
 const WEAPON_COLORS: Record<string, string> = {
@@ -113,7 +125,7 @@ export default function App() {
   const [robots, setRobots] = useState<RobotConfig[]>(() =>
     cloneFightConfig(createDefaultFightConfig()).robots
   );
-  const [maxDuration, setMaxDuration] = useState(45);
+  const [maxDuration, setMaxDuration] = useState(80);
   const [speed, setSpeed] = useState(1);
   const [settings, setSettings] = useState<GameSettings>(() => readSettings());
   const [activeTab, setActiveTab] = useState<Tab>("setup");
@@ -156,8 +168,8 @@ export default function App() {
   const finalFrame = result.frames[result.frames.length - 1] ?? result.frames[0];
   const winner = result.config.robots.find((robot) => robot.id === result.winnerId);
   const recentEvents = result.events
-    .filter((event) => event.type === "weapon" || event.type === "hit" || event.type === "winner")
-    .slice(-7)
+    .filter((event) => event.type === "hit")
+    .slice(-8)
     .reverse();
 
   useEffect(() => {
@@ -541,7 +553,7 @@ export default function App() {
                   <input
                     type="number"
                     min={10}
-                    max={60}
+                    max={180}
                     value={maxDuration}
                     onChange={(event) => setMaxDuration(Number(event.target.value))}
                   />
@@ -822,7 +834,7 @@ export default function App() {
                 return (
                 <section className="robot-editor" key={profileId}>
                   <div className="robot-editor__header">
-                    <span style={{ background: profileId === "aggressive" ? "#ef4f64" : profileId === "evasive" ? "#2d9cdb" : "#8b5cf6" }} />
+                    <span style={{ background: MOVEMENT_PROFILE_COLORS[profileId as MovementProfileId] }} />
                     <strong>{MOVEMENT_PROFILE_LABELS[profileId as MovementProfileId]}</strong>
                   </div>
                   <div className="movement-weight-list">
@@ -974,6 +986,7 @@ export default function App() {
 
           <section className="event-feed">
             <h2>Timeline</h2>
+            {recentEvents.length === 0 && <p className="muted">No hits yet.</p>}
             {recentEvents.map((event, index) => (
               <div className="event-row" key={`${event.type}-${event.time}-${index}`}>
                 <time>{event.time.toFixed(1)}s</time>
@@ -986,11 +999,14 @@ export default function App() {
             {syncedRobots.map((robot) => {
               const robotFrame = frame.robots.find((candidate) => candidate.id === robot.id);
               const finalRobotFrame = finalFrame.robots.find((candidate) => candidate.id === robot.id);
+              const damageDealt = result.damageByRobot[robot.id] ?? 0;
               return (
                 <div className="stat-box" key={robot.id}>
                   <span>{getClassName(robot.classId, classes)}</span>
                   <strong>{Math.round(robotFrame?.hp ?? 0)} HP</strong>
-                  <small>{Math.round(finalRobotFrame?.hp ?? 0)} health remaining</small>
+                  <small>
+                    {Math.round(finalRobotFrame?.hp ?? 0)} health remaining · {Math.round(damageDealt)} damage dealt
+                  </small>
                 </div>
               );
             })}
@@ -1091,7 +1107,8 @@ function formatEvent(event: FightResult["events"][number], config: FightConfig):
   }
 
   if (event.type === "hit") {
-    return `${robotName(event.attackerId)} hit ${robotName(event.targetId)} for ${event.damage.toFixed(0)}`;
+    const weapon = config.weapons.find((candidate) => candidate.id === event.weaponId);
+    return `${robotName(event.attackerId)} > ${robotName(event.targetId)} - ${weapon?.name ?? event.weaponId} - ${event.damage.toFixed(0)}`;
   }
 
   if (event.type === "winner") {

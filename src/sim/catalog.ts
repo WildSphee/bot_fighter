@@ -110,6 +110,33 @@ export const MOVEMENT_PROFILES: Record<MovementProfileId, WeightedDie<MovementId
     { id: "hold", weight: 1 },
     { id: "evade", weight: 3 },
   ],
+  stationary: [
+    { id: "orbit", weight: 1 },
+    { id: "boost", weight: 0 },
+    { id: "backstep", weight: 1 },
+    { id: "strafe-left", weight: 1 },
+    { id: "strafe-right", weight: 1 },
+    { id: "hold", weight: 6 },
+    { id: "evade", weight: 1 },
+  ],
+  flanker: [
+    { id: "orbit", weight: 3 },
+    { id: "boost", weight: 1 },
+    { id: "backstep", weight: 1 },
+    { id: "strafe-left", weight: 3 },
+    { id: "strafe-right", weight: 3 },
+    { id: "hold", weight: 0 },
+    { id: "evade", weight: 1 },
+  ],
+  charger: [
+    { id: "orbit", weight: 1 },
+    { id: "boost", weight: 5 },
+    { id: "backstep", weight: 0 },
+    { id: "strafe-left", weight: 1 },
+    { id: "strafe-right", weight: 1 },
+    { id: "hold", weight: 0 },
+    { id: "evade", weight: 1 },
+  ],
 };
 
 export const MOVEMENTS: MovementId[] = [
@@ -288,7 +315,7 @@ export function createDefaultFightConfig(seed = "bot-fighter-001"): FightConfig 
   return {
     seed,
     mode: "duel",
-    maxDuration: 45,
+    maxDuration: 80,
     tickRate: 60,
     previewFps: 30,
     moveInterval: 1,
@@ -346,11 +373,12 @@ export function getWeaponFrom(weapons: WeaponDefinition[], weaponId: WeaponId): 
 export function cloneMovementProfiles(
   profiles: MovementProfileMap = MOVEMENT_PROFILES
 ): MovementProfileMap {
-  return {
-    balanced: normalizeMovementProfile(profiles.balanced),
-    aggressive: normalizeMovementProfile(profiles.aggressive),
-    evasive: normalizeMovementProfile(profiles.evasive),
-  };
+  return Object.fromEntries(
+    (Object.keys(MOVEMENT_PROFILES) as MovementProfileId[]).map((profileId) => [
+      profileId,
+      normalizeMovementProfile(profiles[profileId] ?? MOVEMENT_PROFILES[profileId]),
+    ])
+  ) as MovementProfileMap;
 }
 
 export function normalizeMovementProfile(
