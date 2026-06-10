@@ -361,7 +361,8 @@ function applyMovement(
   const vector = rotateVector(nearWall ? boundaryVector : movementVector[robot.intent], robot.moveDeviation);
   robot.velocity = add(robot.velocity, mul(vector, robotClass.speed * dt));
   const turnSpeed = Number.isFinite(robotClass.turnSpeed) ? robotClass.turnSpeed : 3;
-  robot.angle = turnToward(robot.angle, angleTo(robot.position, target.position), turnSpeed * dt);
+  const rotFactor = Number.isFinite(robotClass.rotationSpeed) ? robotClass.rotationSpeed : 1;
+  robot.angle = turnToward(robot.angle, angleTo(robot.position, target.position), turnSpeed * dt * rotFactor);
 }
 
 function turnToward(current: number, desired: number, maxStep: number): number {
