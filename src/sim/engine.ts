@@ -719,7 +719,9 @@ function fireWeapon(input: {
       origin: { ...attacker.position },
       position: landing,
       damage: weapon.damage,
-      explosionRadius: weapon.radius + 70,
+      // +50% blast so it covers the (also +50%) trigger radius — otherwise a bot
+      // could trip the mine from outside the damage zone and take no damage.
+      explosionRadius: (weapon.radius + 70) * 1.5,
       // +50% trigger radius so mines catch passing bots more reliably.
       triggerRadius: (weapon.radius + 24) * 1.5,
       knockback: weapon.knockback,

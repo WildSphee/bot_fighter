@@ -132,7 +132,7 @@ export const WEAPONS: WeaponDefinition[] = [
     homing: 0,
     knockback: 24,
     rarity: "common",
-    sound: "laser",
+    sound: "ray",
   },
   {
     id: "missile",

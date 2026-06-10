@@ -174,11 +174,18 @@ export type SoundEventType =
   | "boost"
   | "charge"
   | "laser"
+  | "ray"
+  | "boomerang"
+  | "shotgun"
+  | "mine"
   | "railgun"
   | "missile"
+  | "rocket"
   | "impact"
   | "explosion"
   | "shield"
+  | "shield-hit"
+  | "shield-break"
   | "emp"
   | "winner";
 
