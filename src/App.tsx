@@ -692,6 +692,24 @@ export default function App() {
                       />
                     </label>
                     <label className="field">
+                      <span>Rotation Speed</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={robotClass.rotationSpeed}
+                        onChange={(event) =>
+                          updateClass(robotClass.id, (current) => ({
+                            ...current,
+                            rotationSpeed: Number(event.target.value),
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="two-col">
+                    <label className="field">
                       <span>Movement Profile</span>
                       <select
                         value={robotClass.movementProfile}

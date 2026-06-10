@@ -33,6 +33,7 @@ export const ROBOT_CLASSES: RobotClass[] = [
     shield: 18,
     impactDamage: 11,
     turnSpeed: 3.4,
+    rotationSpeed: 0.16,
     arsenal: ["ray", "missile", "rocket", "shotgun", "shield"],
     movementProfile: "aggressive",
     palette: {
@@ -51,6 +52,7 @@ export const ROBOT_CLASSES: RobotClass[] = [
     shield: 26,
     impactDamage: 17,
     turnSpeed: 2.1,
+    rotationSpeed: 0.16,
     arsenal: ["ray", "mine", "rocket", "shield", "railgun"],
     movementProfile: "balanced",
     palette: {
@@ -69,6 +71,7 @@ export const ROBOT_CLASSES: RobotClass[] = [
     shield: 22,
     impactDamage: 8,
     turnSpeed: 4.4,
+    rotationSpeed: 0.16,
     arsenal: ["ray", "boomerang", "emp", "railgun"],
     movementProfile: "evasive",
     palette: {
@@ -292,6 +295,7 @@ export function withClassDefaults(classes: RobotClass[]): RobotClass[] {
         ? robotClass.impactDamage
         : base?.impactDamage ?? 8,
       turnSpeed: Number.isFinite(robotClass.turnSpeed) ? robotClass.turnSpeed : base?.turnSpeed ?? 3,
+      rotationSpeed: Number.isFinite(robotClass.rotationSpeed) ? robotClass.rotationSpeed : base?.rotationSpeed ?? 0.16,
       palette: { ...robotClass.palette },
       arsenal: [...robotClass.arsenal],
     };

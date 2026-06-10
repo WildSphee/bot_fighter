@@ -22,6 +22,7 @@ export type RobotClass = {
   shield: number;
   impactDamage: number;
   turnSpeed: number;
+  rotationSpeed: number;
   arsenal: WeaponId[];
   movementProfile: MovementProfileId;
   palette: {

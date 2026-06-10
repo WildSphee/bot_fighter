@@ -395,11 +395,11 @@ function integrateRobot(robot: RobotState, config: FightConfig, dt: number) {
   const clampedY = clamp(robot.position.y, minY, maxY);
 
   if (clampedX !== robot.position.x) {
-    robot.velocity.x *= -0.55 / robotClass.mass;
+    robot.velocity.x *= -0.8 / robotClass.mass;
   }
 
   if (clampedY !== robot.position.y) {
-    robot.velocity.y *= -0.55 / robotClass.mass;
+    robot.velocity.y *= -0.8 / robotClass.mass;
   }
 
   robot.position = { x: clampedX, y: clampedY };

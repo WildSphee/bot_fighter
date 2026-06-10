@@ -6,6 +6,7 @@ import type {
   FightFrame,
   FightResult,
   MovementId,
+  RobotClass,
   RobotFrame,
   Vec2,
   WeaponId,
@@ -44,7 +45,7 @@ export function drawFightFrame(
   const layout = createLayout(context);
 
   context.clearRect(0, 0, layout.width, layout.height);
-  drawBackground(context, layout, frame.time);
+  drawBackground(context, layout, frame.time, result.config.classes);
   drawTopBar(context, frame, result, layout);
   drawArena(context, result.config.arena, layout);
 
@@ -83,7 +84,7 @@ function createLayout(context: CanvasRenderingContext2D): Layout {
   };
 }
 
-function drawBackground(context: CanvasRenderingContext2D, layout: Layout, time: number) {
+function drawBackground(context: CanvasRenderingContext2D, layout: Layout, time: number, classes: RobotClass[]) {
   const gradient = context.createLinearGradient(0, 0, layout.width, layout.height);
   gradient.addColorStop(0, "#0e1b22");
   gradient.addColorStop(0.5, "#221a2b");
@@ -91,7 +92,8 @@ function drawBackground(context: CanvasRenderingContext2D, layout: Layout, time:
   context.fillStyle = gradient;
   context.fillRect(0, 0, layout.width, layout.height);
 
-  drawBackgroundCubes(context, layout, time);
+  const avgRotationSpeed = classes.length > 0 ? classes.reduce((sum, c) => sum + c.rotationSpeed, 0) / classes.length : 0.16;
+  drawBackgroundCubes(context, layout, time, avgRotationSpeed);
 
   context.save();
   context.globalAlpha = 0.28;
@@ -102,7 +104,7 @@ function drawBackground(context: CanvasRenderingContext2D, layout: Layout, time:
   context.restore();
 }
 
-function drawBackgroundCubes(context: CanvasRenderingContext2D, layout: Layout, time: number) {
+function drawBackgroundCubes(context: CanvasRenderingContext2D, layout: Layout, time: number, rotationSpeed: number) {
   const cubeCount = 18;
 
   context.save();
@@ -119,7 +121,7 @@ function drawBackgroundCubes(context: CanvasRenderingContext2D, layout: Layout, 
 
     context.save();
     context.translate(x, y);
-    context.rotate(time * 0.16 + index * 0.7);
+    context.rotate(time * rotationSpeed + index * 0.7);
     context.strokeStyle = index % 2 === 0 ? "#8ae9ff" : "#ffdd78";
     context.shadowBlur = 10;
     context.shadowColor = context.strokeStyle;
