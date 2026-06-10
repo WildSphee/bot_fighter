@@ -749,19 +749,20 @@ function fireWeapon(input: {
   }
 
   if (weapon.id === "emp") {
-    // EMP is an omnidirectional pulse around the bot, so facing doesn't matter:
-    // it hits any enemy inside the blast radius.
+    // EMP is an omnidirectional pulse around the bot; use the weapon.range
+    // as the effective blast radius so range updates actually matter.
+    const empReach = Number.isFinite(weapon.range) ? weapon.range : weapon.radius + 96;
     effects.push(
-      createEffect("emp", attacker.position, weapon.radius + 96, time, "#a9fffd", {
+      createEffect("emp", attacker.position, empReach, time, "#a9fffd", {
         weaponId: weapon.id,
       })
     );
-    addElectricParticles(effects, attacker.position, time, weapon.radius + 96);
+    addElectricParticles(effects, attacker.position, time, empReach);
     for (const robot of input.robots) {
-      if (robot.id !== attacker.id && robot.alive && distance(robot.position, attacker.position) <= weapon.radius + 90) {
+      if (robot.id !== attacker.id && robot.alive && distance(robot.position, attacker.position) <= empReach) {
         applyDamage(attacker, robot, weapon, time, events, damageByRobot, effects);
         effects.push(
-          createEffect("emp", robot.position, weapon.radius + 12, time, attacker.palette.glow, {
+          createEffect("emp", robot.position, Math.min(120, empReach * 0.08), time, attacker.palette.glow, {
             weaponId: weapon.id,
           })
         );
