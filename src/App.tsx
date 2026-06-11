@@ -170,6 +170,7 @@ export default function App() {
   const lastSoundTimeRef = useRef(-0.01);
   const soundEngineRef = useRef<SoundEngine | null>(null);
   const introTimeoutRef = useRef<number | null>(null);
+  const profileSyncReadyRef = useRef(false);
 
   const syncedRobots = useMemo(
     () => robots.map((robot, index) => syncRobotWithClass(robot, classes, index, movementProfiles)),
@@ -286,6 +287,10 @@ export default function App() {
     window.localStorage.setItem(MOVEMENT_PROFILE_KEY, JSON.stringify(movementProfiles));
     window.localStorage.setItem(WEAPON_PROFILE_KEY, JSON.stringify(weapons));
     window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    if (!profileSyncReadyRef.current) {
+      return;
+    }
+
     void fetch(`${API_BASE_URL}/api/class-profiles`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -320,7 +325,10 @@ export default function App() {
           setSettings((current) => ({ ...current, ...payload.settings }));
         }
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        profileSyncReadyRef.current = true;
+      });
   }, []);
 
   function updateRobot(robotId: string, updater: (robot: RobotConfig) => RobotConfig) {

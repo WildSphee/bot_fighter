@@ -8,8 +8,13 @@ import {
   type ReelCaptionSummary,
 } from "./instagram";
 import {
+  mergeSettings,
+  readProfileStore,
+  writeProfileStore,
+  type GameSettings,
+} from "./profileStore";
+import {
   ARENAS,
-  ROBOT_CLASSES,
   cloneMovementProfiles,
   cloneWeapons,
   createDefaultFightConfig,
@@ -27,16 +32,11 @@ import type {
 
 const PORT = Number(process.env.API_PORT ?? 8787);
 const HOST = process.env.API_HOST ?? "0.0.0.0";
-type GameSettings = {
-  moveInterval: number;
-  weaponInterval: number;
-  centerGravity: number;
-};
-
-let classProfiles = cloneClassProfiles(ROBOT_CLASSES);
-let movementProfiles = cloneMovementProfiles();
-let weaponProfiles = cloneWeapons();
-let settings: GameSettings = { moveInterval: 1, weaponInterval: 2, centerGravity: 0.35 };
+const storedProfiles = readProfileStore();
+let classProfiles = cloneClassProfiles(storedProfiles.classes);
+let movementProfiles = cloneMovementProfiles(storedProfiles.movementProfiles);
+let weaponProfiles = cloneWeapons(storedProfiles.weapons);
+let settings: GameSettings = { ...storedProfiles.settings };
 
 const server = createServer(async (request, response) => {
   setCorsHeaders(response);
@@ -109,6 +109,13 @@ const server = createServer(async (request, response) => {
       if (body.settings) {
         settings = mergeSettings(settings, body.settings);
       }
+
+      writeProfileStore({
+        classes: classProfiles,
+        movementProfiles,
+        weapons: weaponProfiles,
+        settings,
+      });
 
       sendJson(response, 200, { classes: classProfiles, movementProfiles, weapons: weaponProfiles, settings });
       return;
@@ -222,19 +229,6 @@ function withClassProfiles(config: FightConfig): FightConfig {
     robots: config.robots.map((robot, index) =>
       syncRobotWithClass(robot, classProfiles, index, movementProfiles)
     ),
-  };
-}
-
-function mergeSettings(current: GameSettings, incoming: Partial<GameSettings>): GameSettings {
-  const clampNumber = (value: unknown, fallback: number, min: number, max: number) =>
-    typeof value === "number" && Number.isFinite(value)
-      ? Math.min(max, Math.max(min, value))
-      : fallback;
-
-  return {
-    moveInterval: clampNumber(incoming.moveInterval, current.moveInterval, 0.25, 4),
-    weaponInterval: clampNumber(incoming.weaponInterval, current.weaponInterval, 0.25, 6),
-    centerGravity: clampNumber(incoming.centerGravity, current.centerGravity, 0, 1),
   };
 }
 
