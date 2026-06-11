@@ -23,7 +23,9 @@ export function createSoundEngine(options: {
   return {
     context,
     play: (type, when = context.currentTime) => {
-      if (context.state === "suspended") {
+      // OfflineAudioContext (used for deterministic export rendering) has no
+      // resume(); only nudge real contexts that are parked by autoplay policy.
+      if (context.state === "suspended" && typeof context.resume === "function") {
         void context.resume();
       }
 

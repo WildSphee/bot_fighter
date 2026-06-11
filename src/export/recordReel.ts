@@ -1,6 +1,7 @@
 import { createSoundEngine } from "../audio/sfx";
 import { drawFightFrame } from "../render/drawFight";
 import type { FightEvent, FightResult, SoundEventType } from "../sim/types";
+import { encodeReelOffline, supportsOfflineEncode } from "./encodeReelOffline";
 
 export type ReelRecording = {
   blob: Blob;
@@ -15,7 +16,28 @@ const MIME_TYPES = [
   "video/webm",
 ];
 
+/**
+ * Prefer the deterministic offline encoder (even frame spacing, no dropped
+ * frames). Fall back to realtime MediaRecorder capture when WebCodecs is
+ * unavailable or the offline encode fails for any reason.
+ */
 export async function recordReel(
+  canvas: HTMLCanvasElement,
+  result: FightResult,
+  includeSound: boolean
+): Promise<ReelRecording> {
+  if (supportsOfflineEncode()) {
+    try {
+      return await encodeReelOffline(canvas, result, includeSound);
+    } catch (error) {
+      console.warn("Offline reel encode failed; falling back to realtime capture.", error);
+    }
+  }
+
+  return recordReelRealtime(canvas, result, includeSound);
+}
+
+async function recordReelRealtime(
   canvas: HTMLCanvasElement,
   result: FightResult,
   includeSound: boolean
