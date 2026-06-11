@@ -128,8 +128,8 @@ const BLADE_HOLD_SECONDS = 1;
 // Swing twice as fast as before, then leave the blade hanging in its finished
 // pose for a moment before it fades out.
 const BLADE_SWING_SECONDS = 0.205;
-const BLADE_LINGER_SECONDS = 0.5;
-const BLAST_RIFLE_SHOT_INTERVAL = 0.04;
+const BLADE_LINGER_SECONDS = 0.2;
+const BLAST_RIFLE_SHOT_INTERVAL = 0.03;
 const SHIELD_REGEN_DELAY_SECONDS = 2;
 
 export function simulateFight(config: FightConfig): FightResult {
