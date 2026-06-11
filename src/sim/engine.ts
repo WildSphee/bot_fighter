@@ -94,6 +94,7 @@ type PendingFlameLine = {
   resolvesAt: number;
   expiresAt: number;
   lastTickAt: number;
+  resolvedSoundPlayed: boolean;
   hitRobotIds: Set<string>;
 };
 
@@ -846,6 +847,7 @@ function fireWeapon(input: {
       resolvesAt: time + FLAME_LINE_TELEGRAPH_SECONDS,
       expiresAt: time + FLAME_LINE_TELEGRAPH_SECONDS + FLAME_LINE_PILLAR_SECONDS,
       lastTickAt: time + FLAME_LINE_TELEGRAPH_SECONDS - FLAME_LINE_TICK_SECONDS,
+      resolvedSoundPlayed: false,
       hitRobotIds: new Set(),
     });
     return true;
@@ -1666,6 +1668,11 @@ function updateFlameLines(
     if (time >= flameLine.expiresAt) {
       flameLines.splice(index, 1);
       continue;
+    }
+
+    if (!flameLine.resolvedSoundPlayed && time >= flameLine.resolvesAt) {
+      events.push({ type: "sound", time, sound: "explosion" });
+      flameLine.resolvedSoundPlayed = true;
     }
 
     if (time < flameLine.resolvesAt || time - flameLine.lastTickAt < FLAME_LINE_TICK_SECONDS) {

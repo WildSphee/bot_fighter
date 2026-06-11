@@ -600,4 +600,37 @@ describe("simulateFight", () => {
     expect(burningFrame).toBeDefined();
     expect(burningTicks.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("plays an explosion sound when Smaug's flame line erupts", () => {
+    const config = createDefaultFightConfig("smaug-flame-line-sound");
+    config.maxDuration = 5;
+    config.centerGravity = 0;
+    config.classes = config.classes.map((robotClass) => ({
+      ...robotClass,
+      speed: 0,
+      turnSpeed: 100,
+      shield: 0,
+      armor: 0,
+      hp: robotClass.id === "smaug" ? robotClass.hp : 500,
+      arsenal: robotClass.id === "smaug" ? ["flame-line"] : [],
+    }));
+    config.robots = config.robots.map((robot, index) => ({
+      ...robot,
+      classId: index === 0 ? "smaug" : "bulwark",
+      arsenal: index === 0 ? ["flame-line"] : [],
+      weaponDice: index === 0 ? [{ id: "flame-line", weight: 1 }] : [],
+      movementDice: [{ id: "hold", weight: 1 }],
+    }));
+
+    const result = simulateFight(config);
+    const flameLineCast = result.events.find(
+      (event) => event.type === "weapon" && event.weaponId === "flame-line"
+    );
+    const eruptionSound = result.events.find(
+      (event) => event.type === "sound" && event.sound === "explosion"
+    );
+
+    expect(flameLineCast).toBeDefined();
+    expect(eruptionSound?.time).toBeGreaterThan((flameLineCast?.time ?? 0) + 1.4);
+  });
 });

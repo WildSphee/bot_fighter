@@ -16,6 +16,14 @@ const SAMPLE_URLS: Partial<Record<SoundEventType, string>> = {
   flamethrower: smaugFlamethrowerUrl,
 };
 
+const SAMPLE_BASE_VOLUME: Partial<Record<SoundEventType, number>> = {
+  flamethrower: 0.78,
+};
+
+const SOUND_VOLUME_MULTIPLIER: Partial<Record<SoundEventType, number>> = {
+  flamethrower: 0.8,
+};
+
 export function createSoundEngine(options: {
   context?: AudioContext;
   destination?: AudioNode;
@@ -53,14 +61,17 @@ export function createSoundEngine(options: {
       const source = context.createBufferSource();
       const gain = context.createGain();
       source.buffer = sample;
-      gain.gain.value = type === "flamethrower" ? 0.78 : 0.68;
+      gain.gain.value = (SAMPLE_BASE_VOLUME[type] ?? 0.68) * (SOUND_VOLUME_MULTIPLIER[type] ?? 1);
       source.connect(gain);
       gain.connect(output);
       source.start(when);
       return;
     }
 
-    playSound(context, output, type, when);
+    const scaledOutput = context.createGain();
+    scaledOutput.gain.value = SOUND_VOLUME_MULTIPLIER[type] ?? 1;
+    scaledOutput.connect(output);
+    playSound(context, scaledOutput, type, when);
   }
 }
 

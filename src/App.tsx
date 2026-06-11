@@ -311,7 +311,6 @@ export default function App() {
   useEffect(() => {
     if (!isPlaying) {
       startedAtRef.current = null;
-      lastSoundTimeRef.current = -0.01;
       return;
     }
 
@@ -341,7 +340,7 @@ export default function App() {
   }, [frame.time, isPlaying, result.frames, speed]);
 
   useEffect(() => {
-    if (!isPlaying || !soundEnabled || !soundEngineRef.current) {
+    if (!soundEnabled || !soundEngineRef.current || frame.time <= lastSoundTimeRef.current) {
       return;
     }
 
@@ -356,7 +355,7 @@ export default function App() {
     }
 
     lastSoundTimeRef.current = frame.time;
-  }, [frame.time, isPlaying, result.events, soundEnabled]);
+  }, [frame.time, result.events, soundEnabled]);
 
   useEffect(() => {
     setWeapons((current) => mergeWeaponProfiles(current));
