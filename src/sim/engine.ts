@@ -110,7 +110,7 @@ const ROCKET_MAX_SPEED = 1500;
 const COLLISION_DAMAGE_COOLDOWN = 0.45;
 const KNOCKBACK_MULTIPLIER = 2.1;
 const SHOOTER_RECOIL_MULTIPLIER = 0.23;
-const EMP_RADIUS_MULTIPLIER = 2;
+const EMP_RADIUS_MULTIPLIER = 1;
 // Default cadences (seconds) when a config doesn't specify them. The movement
 // slot and weapon list pick on these fixed beats so the on-screen reels stay in
 // sync with what actually executes.
@@ -1295,7 +1295,7 @@ function updatePendingShots(
       explosionRadius: 0,
     });
     effects.push(
-      createEffect("muzzle", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), shot.weapon.radius + 18, time, "#ff2b72", {
+      createEffect("muzzle", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), shot.weapon.radius + 18, time, "#2bbcff", {
         weaponId: shot.weapon.id,
       })
     );

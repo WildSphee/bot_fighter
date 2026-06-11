@@ -97,7 +97,7 @@ const WEAPON_COLORS: Record<string, string> = {
   missile: "#ff8f4f",
   boomerang: "#d7f8ff",
   blade: "#ff0055",
-  "blast-rifle": "#ff2b72",
+  "blast-rifle": "#2bbcff",
   shotgun: "#ffd166",
   mine: "#f6c85f",
   shield: "#7ef7c7",
@@ -1005,7 +1005,7 @@ export default function App() {
                   <span>{getClassName(robot.classId, classes)}</span>
                   <strong>{Math.round(robotFrame?.hp ?? 0)} HP</strong>
                   <small>
-                    {Math.round(finalRobotFrame?.hp ?? 0)} health remaining · {Math.round(damageDealt)} damage dealt
+                    {Math.round(finalRobotFrame?.hp ?? 0)} remain <br></br> {Math.round(damageDealt)} dealt
                   </small>
                 </div>
               );

@@ -212,7 +212,7 @@ export const WEAPONS: WeaponDefinition[] = [
     kind: "projectile",
     range: 760,
     damage: 9,
-    projectileSpeed: 780,
+    projectileSpeed: 1560,
     cooldown: 2,
     radius: 11,
     homing: 0,

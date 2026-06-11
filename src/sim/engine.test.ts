@@ -175,7 +175,7 @@ describe("simulateFight", () => {
     }
   });
 
-  it("doubles the EMP pulse radius and adds electric arcs", () => {
+  it("uses the EMP pulse radius and adds electric arcs", () => {
     const config = createDefaultFightConfig("emp-radius");
     const empRange = 500;
     config.maxDuration = 1.2;
@@ -206,7 +206,7 @@ describe("simulateFight", () => {
     const pulse = empEffects.find((effect) => effect.type === "emp");
     const electricArcCount = empEffects.filter((effect) => effect.type === "beam").length;
 
-    expect(pulse?.radius).toBe(empRange * 2);
+    expect(pulse?.radius).toBe(empRange);
     expect(electricArcCount).toBeGreaterThanOrEqual(24);
   });
 
@@ -347,8 +347,8 @@ describe("simulateFight", () => {
         if (projectile.weaponId === "blast-rifle") {
           blastProjectiles.add(projectile.id);
           const speed = Math.hypot(projectile.velocity.x, projectile.velocity.y);
-          expect(speed).toBeGreaterThan(760);
-          expect(speed).toBeLessThan(840);
+          expect(speed).toBeGreaterThan(1540);
+          expect(speed).toBeLessThan(1620);
         }
       }
     }
@@ -366,6 +366,13 @@ describe("simulateFight", () => {
       height: 520,
       drag: 1,
     };
+    config.weapons = config.weapons.map((weapon) =>
+      weapon.id === "blade"
+        ? { ...weapon, range: 360 }
+        : weapon.id === "blast-rifle"
+          ? { ...weapon, projectileSpeed: 260 }
+          : weapon
+    );
     config.classes = config.classes.map((robotClass, index) => ({
       ...robotClass,
       speed: 0,

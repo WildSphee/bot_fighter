@@ -732,8 +732,8 @@ function drawProjectiles(
       context.stroke();
     } else if (projectile.weaponId === "blast-rifle") {
       context.shadowBlur = 16;
-      context.shadowColor = "#ff2b72";
-      context.fillStyle = "#ff2b72";
+      context.shadowColor = "#2bbcff";
+      context.fillStyle = "#2bbcff";
       context.strokeStyle = "#ffffff";
       context.lineWidth = 2;
       context.beginPath();
@@ -1216,7 +1216,7 @@ function projectileColor(weaponId: WeaponId): string {
     case "blade":
       return "#ff0055";
     case "blast-rifle":
-      return "#ff2b72";
+      return "#2bbcff";
     case "mine":
       return "#f6c85f";
     case "emp":
