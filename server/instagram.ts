@@ -1,5 +1,6 @@
 import { ApiRequestError } from "./apiError";
 import { createR2VideoStorage, type HostedVideo, type VideoStorage } from "./r2Storage";
+import { normalizeReelVideo } from "./videoNormalize";
 
 export type CaptionHighlight = {
   time: number;
@@ -43,6 +44,7 @@ type PublishOptions = {
   logger?: InstagramLogger;
   storage?: VideoStorage;
   scheduleCleanup?: (callback: () => void, ms: number) => unknown;
+  normalizeVideo?: typeof normalizeReelVideo;
 };
 
 type CaptionOptions = {
@@ -128,6 +130,7 @@ export async function publishInstagramReel(
   const attemptId = createAttemptId();
   const storage = options.storage ?? createR2VideoStorage(env);
   const cleanupDelayMs = readRetentionMs(env);
+  const normalizeVideo = options.normalizeVideo ?? normalizeReelVideo;
   let hostedVideo: HostedVideo | undefined;
 
   logInstagram(logger, "info", "Instagram reel publish started.", {
@@ -141,13 +144,27 @@ export async function publishInstagramReel(
   });
 
   try {
-    logInstagram(logger, "info", "Uploading reel video to Cloudflare R2.", {
+    logInstagram(logger, "info", "Normalizing reel video for Instagram.", {
       attemptId,
-      videoBytes: video.byteLength,
-      contentType,
+      inputBytes: video.byteLength,
+      inputContentType: contentType,
     });
 
-    hostedVideo = await storage.uploadVideo(video, contentType);
+    const normalizedVideo = await normalizeVideo(video, contentType);
+
+    logInstagram(logger, "info", "Reel video normalization finished.", {
+      attemptId,
+      outputBytes: normalizedVideo.video.byteLength,
+      outputContentType: normalizedVideo.contentType,
+    });
+
+    logInstagram(logger, "info", "Uploading reel video to Cloudflare R2.", {
+      attemptId,
+      videoBytes: normalizedVideo.video.byteLength,
+      contentType: normalizedVideo.contentType,
+    });
+
+    hostedVideo = await storage.uploadVideo(normalizedVideo.video, normalizedVideo.contentType);
 
     logInstagram(logger, "info", "Reel video hosted for Instagram.", {
       attemptId,

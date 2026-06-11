@@ -35,7 +35,11 @@ export async function recordReel(
     ...canvasStream.getVideoTracks(),
     ...(destination?.stream.getAudioTracks() ?? []),
   ]);
-  const recorder = new MediaRecorder(mediaStream, { mimeType });
+  const recorder = new MediaRecorder(mediaStream, {
+    mimeType,
+    videoBitsPerSecond: 8_000_000,
+    audioBitsPerSecond: 128_000,
+  });
   const chunks: BlobPart[] = [];
   const context = canvas.getContext("2d");
 

@@ -93,18 +93,21 @@ describe("instagram publishing helpers", () => {
       .mockResolvedValueOnce(jsonResponse({ id: "media-1" }));
     const storage = createStorage();
     const scheduleCleanup = vi.fn();
+    const normalizeVideo = createNormalizeVideo();
 
     const result = await publishInstagramReel(Buffer.from("mp4"), "caption", "video/mp4", {
       env: testEnv,
       fetcher,
       storage,
       scheduleCleanup,
+      normalizeVideo,
       wait: async () => undefined,
       pollDelayMs: 1,
     });
 
     expect(result).toEqual({ mediaId: "media-1", containerId: "container-1", status: "published" });
-    expect(storage.uploadVideo).toHaveBeenCalledWith(Buffer.from("mp4"), "video/mp4");
+    expect(normalizeVideo).toHaveBeenCalledWith(Buffer.from("mp4"), "video/mp4");
+    expect(storage.uploadVideo).toHaveBeenCalledWith(Buffer.from("normalized-mp4"), "video/mp4");
     expect(fetcher).toHaveBeenCalledTimes(4);
     expect(fetcher.mock.calls[0][0]).toContain("https://graph.instagram.com/");
     expect(fetcher.mock.calls[0][0]).toContain("/1789/media");
@@ -125,6 +128,7 @@ describe("instagram publishing helpers", () => {
       .mockResolvedValueOnce(jsonResponse({ status_code: "FINISHED" }))
       .mockResolvedValueOnce(jsonResponse({ id: "media-1" }));
     const storage = createStorage();
+    const normalizeVideo = createNormalizeVideo();
     const logger = {
       info: vi.fn(),
       warn: vi.fn(),
@@ -136,6 +140,7 @@ describe("instagram publishing helpers", () => {
       fetcher,
       logger,
       storage,
+      normalizeVideo,
       scheduleCleanup: vi.fn(),
       wait: async () => undefined,
     });
@@ -168,12 +173,14 @@ describe("instagram publishing helpers", () => {
     const fetcher = vi.fn();
     const storage = createStorage();
     storage.uploadVideo.mockRejectedValueOnce(new ApiRequestError("Cloudflare R2 video upload failed.", 502));
+    const normalizeVideo = createNormalizeVideo();
 
     await expect(
       publishInstagramReel(Buffer.from("mp4"), "caption", "video/mp4", {
         env: testEnv,
         fetcher,
         storage,
+        normalizeVideo,
       })
     ).rejects.toMatchObject({
       message: "Cloudflare R2 video upload failed.",
@@ -190,6 +197,7 @@ describe("instagram publishing helpers", () => {
       .mockResolvedValueOnce(jsonResponse({ status_code: "ERROR" }));
     const storage = createStorage();
     const scheduleCleanup = vi.fn();
+    const normalizeVideo = createNormalizeVideo();
 
     await expect(
       publishInstagramReel(Buffer.from("mp4"), "caption", "video/mp4", {
@@ -197,6 +205,7 @@ describe("instagram publishing helpers", () => {
         fetcher,
         storage,
         scheduleCleanup,
+        normalizeVideo,
         wait: async () => undefined,
       })
     ).rejects.toMatchObject({
@@ -215,6 +224,13 @@ function createStorage() {
     }),
     deleteVideo: vi.fn().mockResolvedValue(undefined),
   };
+}
+
+function createNormalizeVideo() {
+  return vi.fn().mockResolvedValue({
+    video: Buffer.from("normalized-mp4"),
+    contentType: "video/mp4" as const,
+  });
 }
 
 function jsonResponse(payload: unknown, status = 200) {
