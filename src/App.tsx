@@ -153,6 +153,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
+  const [renderProgress, setRenderProgress] = useState<number | null>(null);
   const [exportStatus, setExportStatus] = useState("Ready");
   const [frameIndex, setFrameIndex] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>(() => readHistory());
@@ -494,6 +495,11 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  function handleRenderProgress(fraction: number) {
+    setRenderProgress(fraction);
+    console.log(`Rendering reel: ${Math.round(fraction * 100)}%`);
+  }
+
   async function exportReel() {
     const canvas = canvasRef.current;
     if (!canvas || isRecording) {
@@ -501,11 +507,12 @@ export default function App() {
     }
 
     setIsRecording(true);
+    setRenderProgress(0);
     setIsPlaying(false);
     setExportStatus("Recording");
 
     try {
-      const recording = await recordReel(canvas, result, soundEnabled);
+      const recording = await recordReel(canvas, result, soundEnabled, handleRenderProgress);
       saveToHistory(result);
       const url = URL.createObjectURL(recording.blob);
       const anchor = document.createElement("a");
@@ -518,6 +525,7 @@ export default function App() {
       setExportStatus(error instanceof Error ? error.message : "Export failed");
     } finally {
       setIsRecording(false);
+      setRenderProgress(null);
     }
   }
 
@@ -568,13 +576,14 @@ export default function App() {
 
     setIsPostingReel(true);
     setIsRecording(true);
+    setRenderProgress(0);
     setIsPlaying(false);
     setPostError("");
     setPostedMediaId("");
     setPostStatus("Recording reel");
 
     try {
-      const recording = await recordReel(canvas, result, soundEnabled);
+      const recording = await recordReel(canvas, result, soundEnabled, handleRenderProgress);
       if (recording.extension !== "mp4") {
         throw new Error("Instagram posting requires MP4 recording in this browser.");
       }
@@ -604,6 +613,7 @@ export default function App() {
     } finally {
       setIsPostingReel(false);
       setIsRecording(false);
+      setRenderProgress(null);
     }
   }
 
@@ -1133,15 +1143,14 @@ export default function App() {
           <div className="stage-wrap">
             <canvas ref={canvasRef} width={900} height={1600} className="fight-canvas" />
           </div>
-          <div className="match-strip">
-            <div className="result-chip">
-              <Swords size={18} />
-              <strong>{syncedRobots.map((robot) => getClassName(robot.classId, classes)).join(" vs ")}</strong>
+          {renderProgress !== null && (
+            <div className="render-progress" role="progressbar" aria-valuenow={Math.round(renderProgress * 100)}>
+              <div className="progress-track">
+                <span style={{ width: `${Math.round(renderProgress * 100)}%` }} />
+              </div>
+              <em>Rendering… {Math.round(renderProgress * 100)}%</em>
             </div>
-            <div className="progress-track">
-              <span style={{ width: `${(frame.time / result.duration) * 100}%` }} />
-            </div>
-          </div>
+          )}
         </section>
 
         <aside className="telemetry" aria-label="Fight telemetry">

@@ -31,7 +31,8 @@ export function supportsOfflineEncode(): boolean {
 export async function encodeReelOffline(
   canvas: HTMLCanvasElement,
   result: FightResult,
-  includeSound: boolean
+  includeSound: boolean,
+  onProgress?: (fraction: number) => void
 ): Promise<ReelRecording> {
   const context = canvas.getContext("2d");
   if (!context) {
@@ -68,8 +69,11 @@ export async function encodeReelOffline(
     framerate: fps,
   });
 
+  const totalFrames = result.frames.length;
   const frameDuration = 1_000_000 / fps; // microseconds
-  for (let index = 0; index < result.frames.length; index += 1) {
+  let lastPercent = -1;
+  onProgress?.(0);
+  for (let index = 0; index < totalFrames; index += 1) {
     if (encodeError) {
       break;
     }
@@ -82,6 +86,13 @@ export async function encodeReelOffline(
     // One keyframe per second keeps the file seekable without bloating it.
     videoEncoder.encode(frame, { keyFrame: index % fps === 0 });
     frame.close();
+
+    // Throttle progress to whole-percent steps so we don't flood React state.
+    const percent = Math.floor(((index + 1) / totalFrames) * 100);
+    if (percent !== lastPercent) {
+      lastPercent = percent;
+      onProgress?.((index + 1) / totalFrames);
+    }
 
     // Bound memory and let the visible canvas repaint to show progress.
     if (videoEncoder.encodeQueueSize > 8) {
@@ -99,6 +110,7 @@ export async function encodeReelOffline(
   }
 
   muxer.finalize();
+  onProgress?.(1);
 
   return {
     blob: new Blob([muxer.target.buffer], { type: "video/mp4" }),

@@ -24,23 +24,25 @@ const MIME_TYPES = [
 export async function recordReel(
   canvas: HTMLCanvasElement,
   result: FightResult,
-  includeSound: boolean
+  includeSound: boolean,
+  onProgress?: (fraction: number) => void
 ): Promise<ReelRecording> {
   if (supportsOfflineEncode()) {
     try {
-      return await encodeReelOffline(canvas, result, includeSound);
+      return await encodeReelOffline(canvas, result, includeSound, onProgress);
     } catch (error) {
       console.warn("Offline reel encode failed; falling back to realtime capture.", error);
     }
   }
 
-  return recordReelRealtime(canvas, result, includeSound);
+  return recordReelRealtime(canvas, result, includeSound, onProgress);
 }
 
 async function recordReelRealtime(
   canvas: HTMLCanvasElement,
   result: FightResult,
-  includeSound: boolean
+  includeSound: boolean,
+  onProgress?: (fraction: number) => void
 ): Promise<ReelRecording> {
   const mimeType =
     MIME_TYPES.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? "video/webm";
@@ -82,14 +84,25 @@ async function recordReelRealtime(
   recorder.start(500);
 
   let lastEventTime = -0.01;
-  for (const frame of result.frames) {
+  let lastPercent = -1;
+  onProgress?.(0);
+  for (let index = 0; index < result.frames.length; index += 1) {
+    const frame = result.frames[index];
     drawFightFrame(context, frame, result);
     if (soundEngine) {
       playFrameSounds(result.events, lastEventTime, frame.time, soundEngine.play);
     }
     lastEventTime = frame.time;
+
+    const percent = Math.floor(((index + 1) / result.frames.length) * 100);
+    if (percent !== lastPercent) {
+      lastPercent = percent;
+      onProgress?.((index + 1) / result.frames.length);
+    }
+
     await wait(1000 / fps);
   }
+  onProgress?.(1);
 
   recorder.stop();
   for (const track of mediaStream.getTracks()) {

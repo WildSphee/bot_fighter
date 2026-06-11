@@ -78,7 +78,7 @@ button {
 .lab-grid {
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(400px, 540px) minmax(320px, 1fr) minmax(320px, 400px);
+  grid-template-columns: minmax(580px, 800px) minmax(320px, 1fr) minmax(480px, 600px);
   min-height: calc(100vh - 96px);
   padding: 0 26px 26px;
 }
@@ -382,28 +382,23 @@ button {
   max-width: 100%;
 }
 
-.match-strip {
+.render-progress {
   align-items: center;
   background: rgba(32, 43, 53, 0.92);
   border-radius: 8px;
   color: #fffaf0;
   display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(220px, 360px) minmax(160px, 1fr);
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
   max-width: 780px;
-  padding: 12px;
+  padding: 12px 16px;
   width: 100%;
 }
 
-.result-chip {
-  gap: 8px;
-  min-width: 0;
-}
-
-.result-chip strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.render-progress em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 .progress-track {
@@ -837,7 +832,6 @@ button:disabled {
     min-height: 420px;
   }
 
-  .match-strip,
   .telemetry {
     grid-template-columns: 1fr;
   }
