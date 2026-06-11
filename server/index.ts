@@ -1,5 +1,12 @@
+import "dotenv/config";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { URL } from "node:url";
+import {
+  ApiRequestError,
+  generateReelCaption,
+  publishInstagramReel,
+  type ReelCaptionSummary,
+} from "./instagram";
 import {
   ARENAS,
   ROBOT_CLASSES,
@@ -115,6 +122,27 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/api/reel-caption") {
+      const body = await readJson<ReelCaptionSummary>(request);
+      const caption = await generateReelCaption(body);
+      sendJson(response, 200, { caption });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/instagram/reel") {
+      const caption = url.searchParams.get("caption") ?? "";
+      if (!caption.trim()) {
+        sendJson(response, 400, { error: "caption is required" });
+        return;
+      }
+
+      const video = await readBuffer(request);
+      const contentType = request.headers["content-type"] ?? "application/octet-stream";
+      const result = await publishInstagramReel(video, caption, contentType);
+      sendJson(response, 200, result);
+      return;
+    }
+
     sendJson(response, 404, {
       error: "Not found",
       routes: [
@@ -124,11 +152,15 @@ const server = createServer(async (request, response) => {
         "GET /api/class-profiles",
         "PUT /api/class-profiles",
         "POST /api/simulate",
+        "POST /api/reel-caption",
+        "POST /api/instagram/reel",
       ],
     });
   } catch (error) {
-    sendJson(response, 500, {
+    const status = error instanceof ApiRequestError ? error.status : 500;
+    sendJson(response, status, {
       error: error instanceof Error ? error.message : "Unknown backend error",
+      details: error instanceof ApiRequestError ? error.details : undefined,
     });
   }
 });
@@ -149,14 +181,18 @@ function sendJson(response: ServerResponse, status: number, payload: unknown) {
 }
 
 async function readJson<T>(request: IncomingMessage): Promise<T> {
+  const raw = (await readBuffer(request)).toString("utf8").trim();
+  return raw ? (JSON.parse(raw) as T) : ({} as T);
+}
+
+async function readBuffer(request: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
 
   for await (const chunk of request) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
 
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
-  return raw ? (JSON.parse(raw) as T) : ({} as T);
+  return Buffer.concat(chunks);
 }
 
 function summarizeResult(result: FightResult) {

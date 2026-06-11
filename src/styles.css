@@ -151,6 +151,7 @@ button {
 
 .field input,
 .field select,
+.field textarea,
 .dice-row input {
   background: #fffdf8;
   border: 1px solid rgba(42, 48, 54, 0.18);
@@ -159,6 +160,13 @@ button {
   min-height: 42px;
   padding: 0 11px;
   width: 100%;
+}
+
+.field textarea {
+  line-height: 1.45;
+  min-height: 160px;
+  padding: 11px;
+  resize: vertical;
 }
 
 .field input[type="range"] {
@@ -699,6 +707,95 @@ button:disabled {
 
 .muted {
   margin: 0;
+}
+
+.modal-backdrop {
+  align-items: center;
+  background: rgba(29, 39, 48, 0.52);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 20;
+}
+
+.post-modal {
+  background: #fffaf0;
+  border: 1px solid rgba(42, 48, 54, 0.16);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(20, 24, 28, 0.34);
+  display: grid;
+  gap: 14px;
+  max-height: min(720px, calc(100vh - 36px));
+  max-width: 620px;
+  overflow: auto;
+  padding: 16px;
+  width: min(620px, 100%);
+}
+
+.post-modal__header {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.post-modal__header div {
+  display: grid;
+  gap: 3px;
+}
+
+.post-modal__header span,
+.post-modal__meta span {
+  color: #59646c;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.post-modal__header h2 {
+  font-size: 24px;
+  line-height: 1;
+  margin: 0;
+}
+
+.post-modal__meta {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.post-modal__meta strong {
+  color: #187b70;
+  font-size: 13px;
+}
+
+.post-modal__error,
+.post-modal__success {
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 800;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.post-modal__error {
+  background: rgba(127, 47, 69, 0.1);
+  color: #7f2f45;
+}
+
+.post-modal__success {
+  background: rgba(24, 123, 112, 0.12);
+  color: #187b70;
+}
+
+.post-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 @media (max-width: 1120px) {

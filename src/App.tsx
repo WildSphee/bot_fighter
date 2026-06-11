@@ -13,8 +13,10 @@ import {
   VolumeX,
   Settings2,
   Shuffle,
+  Send,
   Swords,
   Trophy,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NCS_TRACKS, NCS_USAGE_POLICY_URL } from "./audio/ncsCatalog";
@@ -61,6 +63,7 @@ const CLASS_PROFILE_KEY = "bot-fighter-class-profiles";
 const MOVEMENT_PROFILE_KEY = "bot-fighter-movement-profiles";
 const WEAPON_PROFILE_KEY = "bot-fighter-weapon-profiles";
 const SETTINGS_KEY = "bot-fighter-settings";
+const API_BASE_URL = "http://localhost:8787";
 
 type GameSettings = {
   moveInterval: number;
@@ -155,6 +158,13 @@ export default function App() {
   const [history, setHistory] = useState<HistoryItem[]>(() => readHistory());
   const [weapons, setWeapons] = useState<WeaponDefinition[]>(() => readWeaponProfiles());
   const [intro, setIntro] = useState<string[] | null>(null);
+  const [postModalOpen, setPostModalOpen] = useState(false);
+  const [postCaption, setPostCaption] = useState("");
+  const [postStatus, setPostStatus] = useState("Ready");
+  const [postError, setPostError] = useState("");
+  const [postedMediaId, setPostedMediaId] = useState("");
+  const [isCaptionLoading, setIsCaptionLoading] = useState(false);
+  const [isPostingReel, setIsPostingReel] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const lastSoundTimeRef = useRef(-0.01);
@@ -276,7 +286,7 @@ export default function App() {
     window.localStorage.setItem(MOVEMENT_PROFILE_KEY, JSON.stringify(movementProfiles));
     window.localStorage.setItem(WEAPON_PROFILE_KEY, JSON.stringify(weapons));
     window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    void fetch("http://localhost:8787/api/class-profiles", {
+    void fetch(`${API_BASE_URL}/api/class-profiles`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ classes, movementProfiles, weapons, settings }),
@@ -284,7 +294,7 @@ export default function App() {
   }, [classes, movementProfiles, settings, weapons]);
 
   useEffect(() => {
-    void fetch("http://localhost:8787/api/class-profiles")
+    void fetch(`${API_BASE_URL}/api/class-profiles`)
       .then((response) => (response.ok ? response.json() : undefined))
       .then(
         (
@@ -472,6 +482,92 @@ export default function App() {
     }
   }
 
+  function openPostReel() {
+    setPostModalOpen(true);
+    setPostCaption("");
+    setPostError("");
+    setPostedMediaId("");
+    void generateCaption();
+  }
+
+  async function generateCaption() {
+    setIsCaptionLoading(true);
+    setPostStatus("Generating caption");
+    setPostError("");
+    setPostedMediaId("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/reel-caption`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildCaptionSummary(result, underdogScore.value)),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        caption?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.caption) {
+        throw new Error(payload.error ?? "Caption generation failed");
+      }
+
+      setPostCaption(payload.caption);
+      setPostStatus("Caption ready");
+    } catch (error) {
+      setPostError(error instanceof Error ? error.message : "Caption generation failed");
+      setPostStatus("Caption failed");
+    } finally {
+      setIsCaptionLoading(false);
+    }
+  }
+
+  async function postReel() {
+    const canvas = canvasRef.current;
+    if (!canvas || isPostingReel || !postCaption.trim()) {
+      return;
+    }
+
+    setIsPostingReel(true);
+    setIsRecording(true);
+    setIsPlaying(false);
+    setPostError("");
+    setPostedMediaId("");
+    setPostStatus("Recording reel");
+
+    try {
+      const recording = await recordReel(canvas, result, soundEnabled);
+      if (recording.extension !== "mp4") {
+        throw new Error("Instagram posting requires MP4 recording in this browser.");
+      }
+
+      setPostStatus("Posting to Instagram");
+      const params = new URLSearchParams({ caption: postCaption.trim() });
+      const response = await fetch(`${API_BASE_URL}/api/instagram/reel?${params.toString()}`, {
+        method: "POST",
+        headers: { "Content-Type": recording.mimeType },
+        body: recording.blob,
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        mediaId?: string;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.mediaId) {
+        throw new Error(payload.error ?? "Instagram publish failed");
+      }
+
+      saveToHistory(result);
+      setPostedMediaId(payload.mediaId);
+      setPostStatus(`Published ${payload.mediaId}`);
+    } catch (error) {
+      setPostError(error instanceof Error ? error.message : "Instagram publish failed");
+      setPostStatus("Post failed");
+    } finally {
+      setIsPostingReel(false);
+      setIsRecording(false);
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -505,6 +601,10 @@ export default function App() {
           <button className="secondary-button" onClick={exportReel} disabled={isRecording}>
             <Download size={18} />
             {isRecording ? "Recording" : "Export"}
+          </button>
+          <button className="primary-button" onClick={openPostReel} disabled={isRecording || isPostingReel}>
+            <Send size={18} />
+            Post Reel
           </button>
         </div>
       </header>
@@ -930,9 +1030,13 @@ export default function App() {
                 <Download size={18} />
                 {isRecording ? "Recording Reel" : "Record Reel"}
               </button>
+              <button className="primary-button full-width" onClick={openPostReel} disabled={isRecording || isPostingReel}>
+                <Send size={18} />
+                {isPostingReel ? "Posting Reel" : "Post Reel"}
+              </button>
               <section className="metric-panel">
                 <span>Status</span>
-                <strong>{exportStatus}</strong>
+                <strong>{isPostingReel || postedMediaId || postError ? postStatus : exportStatus}</strong>
               </section>
               <section className="soundtrack-panel">
                 <div className="robot-editor__header">
@@ -1047,6 +1151,67 @@ export default function App() {
           </section>
         </aside>
       </section>
+      {postModalOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="post-modal" role="dialog" aria-modal="true" aria-labelledby="post-reel-title">
+            <div className="post-modal__header">
+              <div>
+                <span>Instagram Reel</span>
+                <h2 id="post-reel-title">Post Reel</h2>
+              </div>
+              <button
+                className="icon-button"
+                title="Close"
+                onClick={() => setPostModalOpen(false)}
+                disabled={isPostingReel}
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <label className="field">
+              <span>Caption</span>
+              <textarea
+                value={postCaption}
+                onChange={(event) => setPostCaption(event.target.value)}
+                maxLength={2200}
+                placeholder={isCaptionLoading ? "Generating caption..." : "Write a caption"}
+                disabled={isCaptionLoading || isPostingReel}
+              />
+            </label>
+            <div className="post-modal__meta">
+              <span>{postCaption.length}/2200</span>
+              <strong>{postStatus}</strong>
+            </div>
+            {postError && <p className="post-modal__error">{postError}</p>}
+            {postedMediaId && <p className="post-modal__success">Published media ID: {postedMediaId}</p>}
+            <div className="post-modal__actions">
+              <button
+                className="secondary-button"
+                onClick={() => setPostModalOpen(false)}
+                disabled={isPostingReel}
+              >
+                Cancel
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => void generateCaption()}
+                disabled={isCaptionLoading || isPostingReel}
+              >
+                <RefreshCw size={17} />
+                Regenerate
+              </button>
+              <button
+                className="primary-button"
+                onClick={() => void postReel()}
+                disabled={isCaptionLoading || isPostingReel || !postCaption.trim()}
+              >
+                <Send size={17} />
+                {isPostingReel ? "Posting" : "Confirm Post"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }
@@ -1211,6 +1376,31 @@ function summarizeResult(result: FightResult) {
     duration: result.duration,
     damageByRobot: result.damageByRobot,
     events: result.events,
+  };
+}
+
+function buildCaptionSummary(result: FightResult, underdogScore: number) {
+  const winnerRobot = result.config.robots.find((robot) => robot.id === result.winnerId);
+  const hitEvents = result.events
+    .filter((event): event is Extract<FightResult["events"][number], { type: "hit" }> => event.type === "hit")
+    .slice(-5);
+
+  return {
+    seed: result.config.seed,
+    winnerName: winnerRobot ? getClassName(winnerRobot.classId, result.config.classes) : "Draw",
+    duration: getMatchDuration(result),
+    botNames: result.config.robots.map((robot) => getClassName(robot.classId, result.config.classes)),
+    damage: result.config.robots
+      .map((robot) => ({
+        name: getClassName(robot.classId, result.config.classes),
+        dealt: result.damageByRobot[robot.id] ?? 0,
+      }))
+      .sort((left, right) => right.dealt - left.dealt),
+    underdogScore,
+    highlights: hitEvents.map((event) => ({
+      time: event.time,
+      text: formatEvent(event, result.config),
+    })),
   };
 }
 
