@@ -162,8 +162,6 @@ function drawTopBar(
   layout: Layout
 ) {
   context.save();
-  context.fillStyle = "rgba(7, 12, 17, 0.78)";
-  context.fillRect(layout.topBar.x, layout.topBar.y, layout.topBar.width, layout.topBar.height);
 
   context.fillStyle = "#fff7e6";
   context.font = "900 36px Inter, system-ui, sans-serif";
@@ -334,6 +332,16 @@ function drawEffects(
       continue;
     }
 
+    if (effect.type === "puddle") {
+      drawPuddle(context, effect, position, layout.arena.width / arena.width, alpha);
+      continue;
+    }
+
+    if (effect.type === "rock") {
+      drawRock(context, effect, position, layout.arena.width / arena.width, alpha);
+      continue;
+    }
+
     context.save();
     context.globalAlpha = alpha * (effect.type === "muzzle" || effect.type === "spark" ? 0.95 : 0.75);
     context.strokeStyle = effect.color;
@@ -363,6 +371,87 @@ function drawEffects(
     }
     context.restore();
   }
+}
+
+function drawPuddle(
+  context: CanvasRenderingContext2D,
+  effect: EffectFrame,
+  position: Vec2,
+  scale: number,
+  alpha: number
+) {
+  const radius = effect.radius * scale;
+  const pulse = 0.5 + 0.5 * Math.sin(effect.age * 9);
+
+  context.save();
+  context.translate(position.x, position.y);
+  context.globalAlpha = Math.min(0.62, 0.28 + alpha * 0.36);
+  context.fillStyle = colorWithAlpha(effect.color, 0.36);
+  context.strokeStyle = effect.color;
+  context.shadowBlur = 18 + pulse * 10;
+  context.shadowColor = effect.color;
+  context.lineWidth = 3;
+  context.beginPath();
+  context.ellipse(0, 0, radius * (1 + pulse * 0.03), radius * 0.78, effect.age * 0.18, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+
+  context.shadowBlur = 0;
+  context.globalAlpha = 0.34 + pulse * 0.18;
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = 1.5;
+  for (let index = 0; index < 3; index += 1) {
+    context.beginPath();
+    context.arc(0, 0, radius * (0.32 + index * 0.18), effect.age + index, effect.age + index + Math.PI * 1.15);
+    context.stroke();
+  }
+  context.restore();
+}
+
+function drawRock(
+  context: CanvasRenderingContext2D,
+  effect: EffectFrame,
+  position: Vec2,
+  scale: number,
+  alpha: number
+) {
+  const radius = effect.radius * scale;
+  const facets = 9;
+
+  context.save();
+  context.translate(position.x, position.y);
+  context.rotate(effect.age * 0.08);
+  context.globalAlpha = Math.min(1, 0.55 + alpha * 0.45);
+  context.shadowBlur = 16;
+  context.shadowColor = effect.color;
+  context.fillStyle = "#52645a";
+  context.strokeStyle = effect.color;
+  context.lineWidth = 4;
+  context.beginPath();
+  for (let index = 0; index < facets; index += 1) {
+    const angle = (Math.PI * 2 * index) / facets;
+    const wobble = 0.82 + ((index * 37) % 5) * 0.06;
+    const x = Math.cos(angle) * radius * wobble;
+    const y = Math.sin(angle) * radius * wobble;
+    if (index === 0) {
+      context.moveTo(x, y);
+    } else {
+      context.lineTo(x, y);
+    }
+  }
+  context.closePath();
+  context.fill();
+  context.stroke();
+
+  context.shadowBlur = 0;
+  context.strokeStyle = colorWithAlpha("#ffffff", 0.55);
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(-radius * 0.35, -radius * 0.28);
+  context.lineTo(radius * 0.22, -radius * 0.1);
+  context.lineTo(radius * 0.48, radius * 0.26);
+  context.stroke();
+  context.restore();
 }
 
 function drawRailgunOverlay(
@@ -949,6 +1038,12 @@ function drawRobotBody(context: CanvasRenderingContext2D, robot: RobotFrame) {
   }
 
   if (robot.classId === "druid") {
+    const speed = Math.hypot(robot.velocity.x, robot.velocity.y);
+    const localSide =
+      (-Math.sin(robot.angle) * robot.velocity.x + Math.cos(robot.angle) * robot.velocity.y) /
+      Math.max(1, speed);
+    const sway = speed > 1 ? Math.max(-0.45, Math.min(0.45, localSide * 0.45)) : 0;
+
     context.beginPath();
     context.moveTo(38, 0);
     context.bezierCurveTo(18, -39, -26, -41, -38, -4);
@@ -965,6 +1060,7 @@ function drawRobotBody(context: CanvasRenderingContext2D, robot: RobotFrame) {
     context.beginPath();
     context.arc(22, 0, 18, -0.8, 0.8);
     context.stroke();
+    drawDruidLeaves(context, robot, sway, speed);
     context.fillStyle = "#f9fbff";
     context.fillRect(-22, -14, 10, 9);
     context.fillRect(-22, 5, 10, 9);
@@ -994,6 +1090,7 @@ function drawRobotBody(context: CanvasRenderingContext2D, robot: RobotFrame) {
     context.beginPath();
     context.arc(-4, 0, 12, 0, Math.PI * 2);
     context.stroke();
+    drawAlchemistHat(context, robot);
     context.fillStyle = "#f9fbff";
     context.fillRect(-25, -15, 11, 10);
     context.fillRect(-25, 5, 11, 10);
@@ -1017,6 +1114,71 @@ function drawRobotBody(context: CanvasRenderingContext2D, robot: RobotFrame) {
   context.fillStyle = "#f9fbff";
   context.fillRect(-23, -16, 12, 10);
   context.fillRect(-23, 6, 12, 10);
+}
+
+function drawDruidLeaves(
+  context: CanvasRenderingContext2D,
+  robot: RobotFrame,
+  sway: number,
+  speed: number
+) {
+  const leaves = [
+    { x: -22, y: -26, angle: -1.1, size: 13 },
+    { x: -8, y: -34, angle: -0.55, size: 11 },
+    { x: 8, y: -31, angle: 0.2, size: 10 },
+    { x: -18, y: 26, angle: 1.05, size: 12 },
+    { x: 4, y: 32, angle: 0.62, size: 10 },
+  ];
+  const flutter = Math.min(0.5, speed / 220);
+
+  context.save();
+  context.shadowBlur = 8;
+  context.shadowColor = robot.palette.glow;
+  for (const leaf of leaves) {
+    context.save();
+    context.translate(leaf.x, leaf.y);
+    context.rotate(leaf.angle + sway + flutter * Math.sin((leaf.x + leaf.y) * 0.13));
+    context.fillStyle = robot.palette.glow;
+    context.strokeStyle = "#f7ffe8";
+    context.lineWidth = 1.5;
+    context.beginPath();
+    context.ellipse(0, 0, leaf.size * 0.45, leaf.size, 0, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+    context.restore();
+  }
+  context.restore();
+}
+
+function drawAlchemistHat(context: CanvasRenderingContext2D, robot: RobotFrame) {
+  context.save();
+  context.translate(-6, -39);
+  context.rotate(-0.05);
+  context.shadowBlur = 10;
+  context.shadowColor = robot.palette.glow;
+
+  context.fillStyle = robot.palette.trim;
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = 3;
+  context.beginPath();
+  context.ellipse(0, 8, 31, 9, 0, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(-17, 6);
+  context.lineTo(-10, -28);
+  context.lineTo(9, -34);
+  context.lineTo(19, 5);
+  context.closePath();
+  context.fill();
+  context.stroke();
+
+  context.fillStyle = robot.palette.glow;
+  context.beginPath();
+  context.roundRect(-14, -4, 28, 7, 3);
+  context.fill();
+  context.restore();
 }
 
 function drawFloatingActions(
@@ -1063,8 +1225,6 @@ function drawActionBar(
 ) {
   const rect = layout.actionBar;
   context.save();
-  context.fillStyle = "rgba(7, 12, 17, 0.86)";
-  context.fillRect(rect.x, rect.y, rect.width, rect.height);
 
   const grid = actionBarGrid(frame.robots.length);
   const padX = HUD_SIDE_INSET + (grid.columns >= 3 ? 0 : 8);

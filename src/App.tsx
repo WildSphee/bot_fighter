@@ -306,6 +306,10 @@ export default function App() {
   }, [frame.time, isPlaying, result.events, soundEnabled]);
 
   useEffect(() => {
+    setWeapons((current) => mergeWeaponProfiles(current));
+  }, []);
+
+  useEffect(() => {
     window.localStorage.setItem(CLASS_PROFILE_KEY, JSON.stringify(classes));
     window.localStorage.setItem(MOVEMENT_PROFILE_KEY, JSON.stringify(movementProfiles));
     window.localStorage.setItem(WEAPON_PROFILE_KEY, JSON.stringify(weapons));
@@ -342,7 +346,7 @@ export default function App() {
           setMovementProfiles(cloneMovementProfiles(payload.movementProfiles));
         }
         if (payload?.weapons?.length) {
-          setWeapons(payload.weapons);
+          setWeapons(mergeWeaponProfiles(payload.weapons));
         }
         if (payload?.settings) {
           setSettings((current) => ({ ...current, ...payload.settings }));
@@ -985,14 +989,6 @@ export default function App() {
                       />
                     </div>
                   </label>
-                  <dl className="weapon-stats">
-                    <div><dt>Type</dt><dd>{weapon.kind}</dd></div>
-                    <div><dt>Range</dt><dd>{weapon.range}</dd></div>
-                    <div><dt>Cooldown</dt><dd>{weapon.cooldown}s</dd></div>
-                    <div><dt>Speed</dt><dd>{weapon.projectileSpeed || "—"}</dd></div>
-                    <div><dt>Radius</dt><dd>{weapon.radius}</dd></div>
-                    <div><dt>Knockback</dt><dd>{weapon.knockback}</dd></div>
-                  </dl>
                 </section>
               ))}
             </div>
@@ -1453,23 +1449,26 @@ function readMovementProfiles(): MovementProfileMap {
 }
 
 function readWeaponProfiles(): WeaponDefinition[] {
-  const base = cloneWeapons();
   try {
     const raw = window.localStorage.getItem(WEAPON_PROFILE_KEY);
     if (!raw) {
-      return base;
+      return cloneWeapons();
     }
 
-    const stored = JSON.parse(raw) as WeaponDefinition[];
-    // Merge persisted overrides onto the current catalog so newly added
-    // weapons still show up and only edited fields (damage) carry over.
-    return base.map((weapon) => {
-      const override = stored.find((candidate) => candidate.id === weapon.id);
-      return override ? { ...weapon, damage: override.damage } : weapon;
-    });
+    return mergeWeaponProfiles(JSON.parse(raw) as WeaponDefinition[]);
   } catch {
-    return base;
+    return cloneWeapons();
   }
+}
+
+function mergeWeaponProfiles(stored: WeaponDefinition[]): WeaponDefinition[] {
+  const base = cloneWeapons();
+  // Merge persisted overrides onto the current catalog so newly added weapons
+  // still show up and only edited fields (damage) carry over.
+  return base.map((weapon) => {
+    const override = stored.find((candidate) => candidate.id === weapon.id);
+    return override ? { ...weapon, damage: override.damage } : weapon;
+  });
 }
 
 function readSettings(): GameSettings {

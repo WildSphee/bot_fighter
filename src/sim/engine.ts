@@ -45,6 +45,7 @@ type ProjectileState = ProjectileFrame & {
   acceleration: number;
   explosive: boolean;
   explosionRadius: number;
+  bouncesLeft?: number;
   hitRobotIds?: Set<string>;
   ellipse?: {
     origin: Vec2;
@@ -102,6 +103,28 @@ type MineState = {
   expiresAt: number;
 };
 
+type HazardState = {
+  id: string;
+  ownerId: string;
+  weapon: WeaponDefinition;
+  position: Vec2;
+  radius: number;
+  createdAt: number;
+  expiresAt: number;
+  lastTickAt: number;
+};
+
+type ObstacleState = {
+  id: string;
+  ownerId: string;
+  weaponId: WeaponId;
+  position: Vec2;
+  radius: number;
+  createdAt: number;
+  expiresAt: number;
+  color: string;
+};
+
 const ROBOT_RADIUS = 36;
 const WINNER_SCREEN_SECONDS = 2;
 const RAILGUN_BEAM_LENGTH = 2600;
@@ -134,6 +157,11 @@ const BLADE_SWING_SECONDS = 0.205;
 const BLADE_LINGER_SECONDS = 0.2;
 const BLAST_RIFLE_SHOT_INTERVAL = 0.03;
 const SHIELD_REGEN_DELAY_SECONDS = 2;
+const GOLD_FLASK_PUDDLE_SECONDS = 4.5;
+const GOLD_FLASK_TICK_SECONDS = 0.35;
+const FLASH_ROCK_SECONDS = 8.4;
+const THORN_MINION_COUNT = 7;
+const THORN_MINION_SHOT_INTERVAL = 0.08;
 
 export function simulateFight(config: FightConfig): FightResult {
   const rng = createRng(`${config.seed}:${config.robots.map((robot) => robot.id).join("|")}`);
@@ -144,6 +172,8 @@ export function simulateFight(config: FightConfig): FightResult {
   const bladeSwings: BladeSwingState[] = [];
   const pendingShots: PendingShot[] = [];
   const mines: MineState[] = [];
+  const hazards: HazardState[] = [];
+  const obstacles: ObstacleState[] = [];
   const effects: EffectFrame[] = [];
   const frames: FightFrame[] = [];
   const events: FightEvent[] = [];
@@ -178,7 +208,7 @@ export function simulateFight(config: FightConfig): FightResult {
 
     if (deathTime !== undefined && time >= deathTime + WINNER_SCREEN_SECONDS) {
       pruneEffects(effects, deathTime + (time - deathTime) * 0.5);
-      captureFrame(time, robots, projectiles, effects, pendingStrikes, bladeSwings, mines, frames);
+      captureFrame(time, robots, projectiles, effects, pendingStrikes, bladeSwings, mines, hazards, obstacles, frames);
       break;
     }
 
@@ -239,6 +269,8 @@ export function simulateFight(config: FightConfig): FightResult {
               bladeSwings,
               pendingShots,
               mines,
+              hazards,
+              obstacles,
               arena: config.arena,
               effects,
               events,
@@ -263,12 +295,15 @@ export function simulateFight(config: FightConfig): FightResult {
         integrateRobot(robot, config, tickStep);
       }
 
+      resolveObstacleCollisions(robots, obstacles);
       resolveRobotCollisions(robots, effects, events, damageByRobot, time);
       updatePendingStrikes(pendingStrikes, robots, effects, events, damageByRobot, time);
       updatePendingShots(pendingShots, robots, projectiles, effects, time);
       updateBladeSwings(bladeSwings, robots, projectiles, effects, events, damageByRobot, time);
-      updateProjectiles(projectiles, robots, config.arena, effects, events, damageByRobot, time, tickStep);
+      updateProjectiles(projectiles, robots, config.arena, hazards, effects, events, damageByRobot, time, tickStep);
       updateMines(mines, robots, effects, events, damageByRobot, time);
+      updateHazards(hazards, robots, effects, events, damageByRobot, time);
+      pruneObstacles(obstacles, time);
       rechargeShields(robots, tickStep, time);
       pruneEffects(effects, time);
     } else {
@@ -282,7 +317,7 @@ export function simulateFight(config: FightConfig): FightResult {
     }
 
     if (time + 0.0001 >= nextFrameAt) {
-      captureFrame(time, robots, projectiles, effects, pendingStrikes, bladeSwings, mines, frames);
+      captureFrame(time, robots, projectiles, effects, pendingStrikes, bladeSwings, mines, hazards, obstacles, frames);
       nextFrameAt += frameStep;
     }
   }
@@ -294,7 +329,7 @@ export function simulateFight(config: FightConfig): FightResult {
     events.push({ type: "winner", time, winnerId, reason: winnerReason, sound: "winner" });
     for (let holdTime = time; holdTime <= time + WINNER_SCREEN_SECONDS + 0.0001; holdTime += frameStep) {
       pruneEffects(effects, holdTime);
-      captureFrame(Number(holdTime.toFixed(4)), robots, projectiles, effects, pendingStrikes, bladeSwings, mines, frames);
+      captureFrame(Number(holdTime.toFixed(4)), robots, projectiles, effects, pendingStrikes, bladeSwings, mines, hazards, obstacles, frames);
     }
   }
 
@@ -566,6 +601,8 @@ function fireWeapon(input: {
   bladeSwings: BladeSwingState[];
   pendingShots: PendingShot[];
   mines: MineState[];
+  hazards: HazardState[];
+  obstacles: ObstacleState[];
   arena: FightConfig["arena"];
   effects: EffectFrame[];
   events: FightEvent[];
@@ -584,6 +621,8 @@ function fireWeapon(input: {
     pendingStrikes,
     bladeSwings,
     pendingShots,
+    hazards,
+    obstacles,
     effects,
     events,
     damageByRobot,
@@ -621,31 +660,32 @@ function fireWeapon(input: {
   }
 
   if (weapon.id === "flash-bloom") {
-    const flashCenter =
+    const rockPosition =
       targetDistance <= weapon.range
         ? target.position
         : clampToArena(add(attacker.position, mul(direction, weapon.range)), input.arena, weapon.radius);
+    const safePosition = clampToArena(rockPosition, input.arena, weapon.radius + 8);
+    obstacles.push({
+      id: `flash-rock-${attacker.id}-${time.toFixed(2)}`,
+      ownerId: attacker.id,
+      weaponId: weapon.id,
+      position: safePosition,
+      radius: weapon.radius,
+      createdAt: time,
+      expiresAt: time + FLASH_ROCK_SECONDS,
+      color: attacker.palette.glow,
+    });
     effects.push(
       createEffect("beam", attacker.position, 8, time, attacker.palette.glow, {
-        endPosition: flashCenter,
+        endPosition: safePosition,
         weaponId: weapon.id,
       })
     );
     effects.push(
-      createEffect("emp", flashCenter, weapon.radius, time, attacker.palette.glow, {
+      createEffect("rock", safePosition, weapon.radius, time, attacker.palette.glow, {
         weaponId: weapon.id,
       })
     );
-
-    for (const robot of input.robots) {
-      if (
-        robot.alive &&
-        robot.id !== attacker.id &&
-        distance(robot.position, flashCenter) <= weapon.radius + ROBOT_RADIUS
-      ) {
-        applyDamage(attacker, robot, weapon, time, events, damageByRobot, effects, sub(robot.position, flashCenter));
-      }
-    }
     return true;
   }
 
@@ -678,29 +718,32 @@ function fireWeapon(input: {
   }
 
   if (weapon.id === "gold-flask") {
-    const arcSign = rngNext() > 0.5 ? 1 : -1;
-    const side = rotate90(direction, arcSign);
-    projectiles.push({
-      id: `gold-flask-${attacker.id}-${time.toFixed(2)}`,
-      ownerId: attacker.id,
-      targetId: target.id,
-      weaponId: weapon.id,
-      position: add(attacker.position, mul(direction, ROBOT_RADIUS + 8)),
-      velocity: add(mul(direction, weapon.projectileSpeed), mul(side, 170 + rngNext() * 90)),
-      damage: weapon.damage,
-      radius: weapon.radius,
-      homing: weapon.homing,
-      knockback: weapon.knockback,
-      curve: arcSign * 185,
-      lastTrailAt: time,
-      age: 0,
-      expiresAt: time + 2.8,
-      acceleration: 0,
-      explosive: true,
-      explosionRadius: weapon.radius + 88,
-    });
+    for (let index = 0; index < 3; index += 1) {
+      const spread = ((index - 1) * 16 * Math.PI) / 180;
+      const flaskDirection = rotateVector(direction, spread);
+      projectiles.push({
+        id: `gold-flask-${attacker.id}-${time.toFixed(2)}-${index}`,
+        ownerId: attacker.id,
+        targetId: target.id,
+        weaponId: weapon.id,
+        position: add(attacker.position, mul(flaskDirection, ROBOT_RADIUS + 8)),
+        velocity: mul(flaskDirection, weapon.projectileSpeed),
+        damage: weapon.damage,
+        radius: weapon.radius,
+        homing: 0,
+        knockback: weapon.knockback,
+        curve: 0,
+        lastTrailAt: time,
+        age: 0,
+        expiresAt: time + weapon.range / Math.max(1, weapon.projectileSpeed),
+        acceleration: 0,
+        explosive: false,
+      explosionRadius: weapon.radius + 63,
+      });
+    }
     effects.push(
-      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 16)), weapon.radius + 18, time, attacker.palette.glow, {
+      createEffect("cone", attacker.position, weapon.radius + 58, time, attacker.palette.glow, {
+        endPosition: add(attacker.position, mul(direction, 220)),
         weaponId: weapon.id,
       })
     );
@@ -754,29 +797,16 @@ function fireWeapon(input: {
   }
 
   if (weapon.id === "thorn-minions") {
-    const minionCount = 3;
-    for (let index = 0; index < minionCount; index += 1) {
-      const spread = ((index - 1) * 24 * Math.PI) / 180;
-      const minionDirection = rotateVector(direction, spread);
-      const side = rotate90(minionDirection, index % 2 === 0 ? 1 : -1);
-      projectiles.push({
+    for (let index = 0; index < THORN_MINION_COUNT; index += 1) {
+      const spread =
+        ((index - (THORN_MINION_COUNT - 1) / 2) * 10 * Math.PI) / 180;
+      pendingShots.push({
         id: `thorn-minion-${attacker.id}-${time.toFixed(2)}-${index}`,
-        ownerId: attacker.id,
+        weapon,
+        attackerId: attacker.id,
         targetId: target.id,
-        weaponId: weapon.id,
-        position: add(attacker.position, mul(minionDirection, ROBOT_RADIUS + 10)),
-        velocity: add(mul(minionDirection, weapon.projectileSpeed), mul(side, 80 + index * 28)),
-        damage: weapon.damage,
-        radius: weapon.radius,
-        homing: weapon.homing,
-        knockback: weapon.knockback,
-        curve: (index - 1) * 55,
-        lastTrailAt: time,
-        age: 0,
-        expiresAt: time + 3.4,
-        acceleration: 0,
-        explosive: false,
-        explosionRadius: 0,
+        fireAt: time + index * THORN_MINION_SHOT_INTERVAL,
+        angleOffset: spread,
       });
     }
     effects.push(
@@ -1006,6 +1036,7 @@ function updateProjectiles(
   projectiles: ProjectileState[],
   robots: RobotState[],
   arena: FightConfig["arena"],
+  hazards: HazardState[],
   effects: EffectFrame[],
   events: FightEvent[],
   damageByRobot: Record<string, number>,
@@ -1066,6 +1097,25 @@ function updateProjectiles(
       projectile.position = add(projectile.position, mul(projectile.velocity, dt));
     }
 
+    if (projectile.weaponId === "thorn-minions") {
+      const bounced = bounceProjectileOffWalls(projectile, arena);
+      if (bounced) {
+        projectile.bouncesLeft = (projectile.bouncesLeft ?? 0) - 1;
+        projectile.position = clampToArena(projectile.position, arena, projectile.radius);
+        effects.push(
+          createEffect("spark", projectile.position, projectile.radius + 18, time, owner?.palette.glow ?? "#b6f36b", {
+            weaponId: projectile.weaponId,
+          })
+        );
+        events.push({ type: "sound", time, sound: "impact" });
+
+        if ((projectile.bouncesLeft ?? 0) < 0) {
+          projectiles.splice(index, 1);
+          continue;
+        }
+      }
+    }
+
     if (time - projectile.lastTrailAt >= 0.045) {
       projectile.lastTrailAt = time;
       effects.push(
@@ -1081,14 +1131,19 @@ function updateProjectiles(
     }
 
     const hitWall =
-      projectile.explosive &&
+      (projectile.explosive || projectile.weaponId === "gold-flask") &&
       (projectile.position.x <= projectile.radius ||
         projectile.position.y <= projectile.radius ||
         projectile.position.x >= arena.width - projectile.radius ||
         projectile.position.y >= arena.height - projectile.radius);
 
     if (hitWall) {
-      detonateRocket(projectile, owner, robots, effects, events, damageByRobot, time);
+      if (projectile.weaponId === "gold-flask") {
+        projectile.position = clampToArena(projectile.position, arena, projectile.radius);
+        createGoldPuddle(projectile, owner, hazards, effects, events, time);
+      } else {
+        detonateRocket(projectile, owner, robots, effects, events, damageByRobot, time);
+      }
       projectiles.splice(index, 1);
       continue;
     }
@@ -1104,6 +1159,8 @@ function updateProjectiles(
     if (owner && hitRobot) {
       if (projectile.explosive) {
         detonateRocket(projectile, owner, robots, effects, events, damageByRobot, time);
+      } else if (projectile.weaponId === "gold-flask") {
+        createGoldPuddle(projectile, owner, hazards, effects, events, time);
       } else {
         const projectileWeapon = {
           ...getWeapon(projectile.weaponId),
@@ -1130,7 +1187,10 @@ function updateProjectiles(
     }
 
     if (time >= projectile.expiresAt) {
-      if (projectile.explosive) {
+      if (projectile.weaponId === "gold-flask") {
+        projectile.position = clampToArena(projectile.position, arena, projectile.radius);
+        createGoldPuddle(projectile, owner, hazards, effects, events, time);
+      } else if (projectile.explosive) {
         detonateRocket(projectile, owner, robots, effects, events, damageByRobot, time);
       } else if (projectile.weaponId === "missile") {
         // Small flare puff when a homing missile burns out without a hit.
@@ -1143,6 +1203,53 @@ function updateProjectiles(
       projectiles.splice(index, 1);
     }
   }
+}
+
+function bounceProjectileOffWalls(projectile: ProjectileState, arena: FightConfig["arena"]): boolean {
+  let bounced = false;
+
+  if (projectile.position.x <= projectile.radius || projectile.position.x >= arena.width - projectile.radius) {
+    projectile.velocity.x *= -1;
+    bounced = true;
+  }
+
+  if (projectile.position.y <= projectile.radius || projectile.position.y >= arena.height - projectile.radius) {
+    projectile.velocity.y *= -1;
+    bounced = true;
+  }
+
+  return bounced;
+}
+
+function createGoldPuddle(
+  projectile: ProjectileState,
+  owner: RobotState | undefined,
+  hazards: HazardState[],
+  effects: EffectFrame[],
+  events: FightEvent[],
+  time: number
+) {
+  const weapon = {
+    ...getWeapon("gold-flask"),
+    damage: projectile.damage,
+    knockback: projectile.knockback,
+  };
+  hazards.push({
+    id: `gold-puddle-${projectile.id}-${time.toFixed(2)}`,
+    ownerId: projectile.ownerId,
+    weapon,
+    position: { ...projectile.position },
+    radius: projectile.explosionRadius * 1.5,
+    createdAt: time,
+    expiresAt: time + GOLD_FLASK_PUDDLE_SECONDS,
+    lastTickAt: time - GOLD_FLASK_TICK_SECONDS,
+  });
+  effects.push(
+    createEffect("puddle", projectile.position, projectile.explosionRadius, time, owner?.palette.glow ?? "#ffe08a", {
+      weaponId: "gold-flask",
+    })
+  );
+  events.push({ type: "sound", time, sound: "mine" });
 }
 
 function detonateRocket(
@@ -1261,6 +1368,102 @@ function updateMines(
     }
 
     mines.splice(index, 1);
+  }
+}
+
+function updateHazards(
+  hazards: HazardState[],
+  robots: RobotState[],
+  effects: EffectFrame[],
+  events: FightEvent[],
+  damageByRobot: Record<string, number>,
+  time: number
+) {
+  for (let index = hazards.length - 1; index >= 0; index -= 1) {
+    const hazard = hazards[index];
+
+    if (time >= hazard.expiresAt) {
+      hazards.splice(index, 1);
+      continue;
+    }
+
+    if (time - hazard.lastTickAt < GOLD_FLASK_TICK_SECONDS) {
+      continue;
+    }
+
+    const owner = robots.find((robot) => robot.id === hazard.ownerId);
+    hazard.lastTickAt = time;
+
+    if (!owner?.alive) {
+      continue;
+    }
+
+    for (const robot of robots) {
+      if (!robot.alive || robot.id === owner.id) {
+        continue;
+      }
+
+      const gap = distance(robot.position, hazard.position);
+      if (gap > hazard.radius + ROBOT_RADIUS) {
+        continue;
+      }
+
+      const falloff = Math.max(0.45, 1 - gap / (hazard.radius + ROBOT_RADIUS));
+      applyDamage(
+        owner,
+        robot,
+        {
+          ...hazard.weapon,
+          damage: hazard.weapon.damage * (GOLD_FLASK_TICK_SECONDS / GOLD_FLASK_PUDDLE_SECONDS) * falloff,
+          knockback: hazard.weapon.knockback * 0.18 * falloff,
+        },
+        time,
+        events,
+        damageByRobot,
+        effects,
+        sub(robot.position, hazard.position)
+      );
+      effects.push(
+        createEffect("spark", robot.position, 18, time, owner.palette.glow, {
+          weaponId: hazard.weapon.id,
+        })
+      );
+    }
+  }
+}
+
+function resolveObstacleCollisions(robots: RobotState[], obstacles: ObstacleState[]) {
+  for (const obstacle of obstacles) {
+    for (const robot of robots) {
+      if (!robot.alive) {
+        continue;
+      }
+
+      const delta = sub(robot.position, obstacle.position);
+      const gap = distance(robot.position, obstacle.position);
+      const minGap = ROBOT_RADIUS + obstacle.radius;
+
+      if (gap >= minGap) {
+        continue;
+      }
+
+      const normal = gap > 0.001 ? normalize(delta) : { x: 1, y: 0 };
+      const overlap = minGap - gap;
+      robot.position = add(robot.position, mul(normal, overlap + 0.5));
+
+      const intoObstacle = robot.velocity.x * normal.x + robot.velocity.y * normal.y;
+      if (intoObstacle < 0) {
+        robot.velocity = sub(robot.velocity, mul(normal, intoObstacle * 1.55));
+      }
+    }
+  }
+}
+
+function pruneObstacles(obstacles: ObstacleState[], time: number) {
+  for (let index = obstacles.length - 1; index >= 0; index -= 1) {
+    if (time >= obstacles[index].expiresAt) {
+      obstacles.splice(index, 1);
+    }
   }
 }
 
@@ -1505,13 +1708,16 @@ function updatePendingShots(
 
     const direction = rotateVector({ x: Math.cos(attacker.angle), y: Math.sin(attacker.angle) }, shot.angleOffset);
     const side = rotate90(direction, shot.angleOffset > 0 ? 1 : -1);
+    const isThornMinion = shot.weapon.id === "thorn-minions";
     projectiles.push({
       id: shot.id,
       ownerId: attacker.id,
       targetId: shot.targetId,
       weaponId: shot.weapon.id,
       position: add(attacker.position, mul(direction, ROBOT_RADIUS + 10)),
-      velocity: add(mul(direction, shot.weapon.projectileSpeed), mul(side, 42)),
+      velocity: isThornMinion
+        ? mul(direction, shot.weapon.projectileSpeed)
+        : add(mul(direction, shot.weapon.projectileSpeed), mul(side, 42)),
       damage: shot.weapon.damage,
       radius: shot.weapon.radius,
       homing: 0,
@@ -1519,10 +1725,11 @@ function updatePendingShots(
       curve: 0,
       lastTrailAt: time,
       age: 0,
-      expiresAt: time + 3.2,
+      expiresAt: time + (isThornMinion ? 2.6 : 3.2),
       acceleration: 0,
       explosive: false,
       explosionRadius: 0,
+      bouncesLeft: isThornMinion ? 2 : undefined,
     });
     effects.push(
       createEffect("muzzle", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), shot.weapon.radius + 18, time, attacker.palette.glow, {
@@ -1747,6 +1954,8 @@ function createEffect(
     spark: 0.28,
     blade: BLADE_HOLD_SECONDS + BLADE_SWING_SECONDS + BLADE_LINGER_SECONDS,
     "damage-text": 0.5,
+    puddle: GOLD_FLASK_PUDDLE_SECONDS,
+    rock: FLASH_ROCK_SECONDS,
     telegraph: 0.5,
     trail: 0.34,
   };
@@ -1776,6 +1985,8 @@ function captureFrame(
   pendingStrikes: PendingStrike[],
   bladeSwings: BladeSwingState[],
   mines: MineState[],
+  hazards: HazardState[],
+  obstacles: ObstacleState[],
   frames: FightFrame[]
 ) {
   const frameEffects = [
@@ -1878,6 +2089,31 @@ function captureFrame(
         spin: mine.armAt - time, // seconds until armed (negative once armed)
       };
     }),
+    ...hazards.map((hazard): EffectFrame => {
+      const owner = robots.find((robot) => robot.id === hazard.ownerId);
+      return {
+        id: `${hazard.id}-fx-${time}`,
+        type: "puddle",
+        position: { ...hazard.position },
+        weaponId: hazard.weapon.id,
+        radius: hazard.radius,
+        age: time - hazard.createdAt,
+        duration: hazard.expiresAt - hazard.createdAt,
+        color: owner?.palette.glow ?? "#ffe08a",
+        spin: hazard.expiresAt - time,
+      };
+    }),
+    ...obstacles.map((obstacle): EffectFrame => ({
+      id: `${obstacle.id}-fx-${time}`,
+      type: "rock",
+      position: { ...obstacle.position },
+      weaponId: obstacle.weaponId,
+      radius: obstacle.radius,
+      age: time - obstacle.createdAt,
+      duration: obstacle.expiresAt - obstacle.createdAt,
+      color: obstacle.color,
+      spin: obstacle.expiresAt - time,
+    })),
   ];
 
   frames.push({

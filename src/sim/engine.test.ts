@@ -87,9 +87,9 @@ describe("simulateFight", () => {
       emp: ["emp"],
       railgun: ["beam"],
       rocket: ["projectile", "explosion"],
-      "flash-bloom": ["emp", "beam"],
+      "flash-bloom": ["rock", "beam"],
       "thorn-minions": ["projectile", "spark"],
-      "gold-flask": ["projectile", "explosion"],
+      "gold-flask": ["projectile", "puddle"],
       "transmutation-circle": ["telegraph", "explosion"],
     };
 
@@ -396,6 +396,79 @@ describe("simulateFight", () => {
     }
 
     expect(blastProjectiles.size).toBeGreaterThanOrEqual(4);
+  });
+
+  it("turns gold flasks into overlapping damage puddles on enemy impact", () => {
+    const config = createDefaultFightConfig("gold-flask-impact-puddle");
+    config.maxDuration = 1.5;
+    config.centerGravity = 0;
+    config.arena = {
+      ...config.arena,
+      width: 520,
+      height: 520,
+      drag: 1,
+    };
+    config.weapons = config.weapons.map((weapon) =>
+      weapon.id === "gold-flask" ? { ...weapon, projectileSpeed: 620, range: 900, damage: 30 } : weapon
+    );
+    config.classes = config.classes.map((robotClass) => ({
+      ...robotClass,
+      speed: 0,
+      turnSpeed: 100,
+      arsenal: ["gold-flask"],
+    }));
+    config.robots = config.robots.map((robot, index) => ({
+      ...robot,
+      classId: config.classes[index].id,
+      arsenal: ["gold-flask"],
+      weaponDice: [{ id: "gold-flask", weight: 1 }],
+      movementDice: [{ id: "hold", weight: 1 }],
+    }));
+
+    const result = simulateFight(config);
+    const hasPuddle = result.frames.some((frame) =>
+      frame.effects.some((effect) => effect.type === "puddle" && effect.weaponId === "gold-flask")
+    );
+    const puddleHit = result.events.some(
+      (event) => event.type === "hit" && event.weaponId === "gold-flask"
+    );
+
+    expect(hasPuddle).toBe(true);
+    expect(puddleHit).toBe(true);
+  });
+
+  it("fires thorn minions as a seven-shot staggered volley", () => {
+    const config = createDefaultFightConfig("thorn-minion-volley");
+    config.maxDuration = 1.2;
+    config.centerGravity = 0;
+    config.classes = config.classes.map((robotClass) => ({
+      ...robotClass,
+      speed: 0,
+      turnSpeed: 100,
+      arsenal: ["thorn-minions"],
+    }));
+    config.robots = config.robots.map((robot, index) => ({
+      ...robot,
+      classId: config.classes[index].id,
+      arsenal: ["thorn-minions"],
+      weaponDice: [{ id: "thorn-minions", weight: 1 }],
+      movementDice: [{ id: "hold", weight: 1 }],
+    }));
+
+    const result = simulateFight(config);
+    const thornProjectiles = new Map<string, number>();
+    for (const frame of result.frames) {
+      for (const projectile of frame.projectiles) {
+        if (projectile.weaponId === "thorn-minions") {
+          thornProjectiles.set(projectile.id, Math.hypot(projectile.velocity.x, projectile.velocity.y));
+        }
+      }
+    }
+
+    expect(thornProjectiles.size).toBeGreaterThanOrEqual(7);
+    for (const speed of thornProjectiles.values()) {
+      expect(speed).toBeGreaterThan(830);
+    }
   });
 
   it("lets the neon blade destroy projectiles during its swing", () => {

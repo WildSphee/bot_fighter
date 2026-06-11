@@ -165,7 +165,9 @@ export type EffectFrame = {
     | "bit"
     | "blade"
     | "damage-text"
-    | "telegraph";
+    | "telegraph"
+    | "puddle"
+    | "rock";
   position: Vec2;
   endPosition?: Vec2;
   velocity?: Vec2;
