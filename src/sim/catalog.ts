@@ -37,8 +37,8 @@ export const ROBOT_CLASSES: RobotClass[] = [
     arsenal: ["ray", "missile", "rocket", "shotgun", "blade", "shield"],
     movementProfile: "aggressive",
     palette: {
-      body: "#ef4f64",
-      trim: "#242a35",
+      body: "#ef3f45",
+      trim: "#2b2220",
       glow: "#ffd166",
     },
   },
@@ -57,8 +57,8 @@ export const ROBOT_CLASSES: RobotClass[] = [
     movementProfile: "balanced",
     palette: {
       body: "#8b5cf6",
-      trim: "#1d2330",
-      glow: "#ffdd78",
+      trim: "#646b78",
+      glow: "#c9ccd3",
     },
   },
   {
@@ -76,11 +76,29 @@ export const ROBOT_CLASSES: RobotClass[] = [
     movementProfile: "evasive",
     palette: {
       body: "#2d9cdb",
-      trim: "#1d2a2f",
-      glow: "#7ef7c7",
+      trim: "#f6fbff",
+      glow: "#a9e8ff",
     },
   },
 ];
+
+const LEGACY_CLASS_PALETTES: Record<string, RobotClass["palette"]> = {
+  striker: {
+    body: "#ef4f64",
+    trim: "#242a35",
+    glow: "#ffd166",
+  },
+  bulwark: {
+    body: "#8b5cf6",
+    trim: "#1d2330",
+    glow: "#ffdd78",
+  },
+  trickster: {
+    body: "#2d9cdb",
+    trim: "#1d2a2f",
+    glow: "#7ef7c7",
+  },
+};
 
 export const MOVEMENT_PROFILES: Record<MovementProfileId, WeightedDie<MovementId>[]> = {
   balanced: [
@@ -356,10 +374,34 @@ export function withClassDefaults(classes: RobotClass[]): RobotClass[] {
         : base?.impactDamage ?? 8,
       turnSpeed: Number.isFinite(robotClass.turnSpeed) ? robotClass.turnSpeed : base?.turnSpeed ?? 3,
       rotationSpeed,
-      palette: { ...robotClass.palette },
+      palette: normalizeClassPalette(robotClass, base),
       arsenal: [...robotClass.arsenal],
     };
   });
+}
+
+function normalizeClassPalette(
+  robotClass: RobotClass,
+  base: RobotClass | undefined
+): RobotClass["palette"] {
+  const fallback = base?.palette ?? ROBOT_CLASSES[0].palette;
+  const palette = {
+    body: robotClass.palette?.body ?? fallback.body,
+    trim: robotClass.palette?.trim ?? fallback.trim,
+    glow: robotClass.palette?.glow ?? fallback.glow,
+  };
+  const legacy = LEGACY_CLASS_PALETTES[robotClass.id];
+
+  if (
+    legacy &&
+    palette.body === legacy.body &&
+    palette.trim === legacy.trim &&
+    palette.glow === legacy.glow
+  ) {
+    return { ...fallback };
+  }
+
+  return palette;
 }
 
 export function getWeapon(weaponId: WeaponId): WeaponDefinition {

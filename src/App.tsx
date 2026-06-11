@@ -76,6 +76,7 @@ type HealthChartSeries = {
   robotId: string;
   name: string;
   color: string;
+  accent: string;
   points: HealthChartPoint[];
 };
 
@@ -193,6 +194,7 @@ export default function App() {
   const frame = result.frames[Math.min(frameIndex, result.frames.length - 1)] ?? result.frames[0];
   const finalFrame = result.frames[result.frames.length - 1] ?? result.frames[0];
   const winner = result.config.robots.find((robot) => robot.id === result.winnerId);
+  const winnerPalette = winner?.palette;
   const matchDuration = getMatchDuration(result);
   const healthChartSeries = useMemo(() => buildHealthChartSeries(result, matchDuration), [matchDuration, result]);
   const underdogScore = useMemo(() => calculateUnderdogScore(result, matchDuration), [matchDuration, result]);
@@ -1091,7 +1093,17 @@ export default function App() {
         </section>
 
         <aside className="telemetry" aria-label="Fight telemetry">
-          <section className="score-band">
+          <section
+            className="score-band"
+            style={
+              winnerPalette
+                ? {
+                    borderColor: colorWithAlpha(winnerPalette.body, 0.28),
+                    boxShadow: `inset 5px 0 0 ${winnerPalette.body}`,
+                  }
+                : undefined
+            }
+          >
             <span>Winner</span>
             <div className="score-band__headline">
               <strong>{winner ? getClassName(winner.classId, classes) : "Draw"}</strong>
@@ -1128,7 +1140,8 @@ export default function App() {
                 bots={syncedRobots.map((robot) => ({
                   id: robot.id,
                   name: getClassName(robot.classId, classes),
-                  color: classes.find((robotClass) => robotClass.id === robot.classId)?.palette.glow ?? "#9feee2",
+                  color: classes.find((robotClass) => robotClass.id === robot.classId)?.palette.body ?? "#9feee2",
+                  accent: classes.find((robotClass) => robotClass.id === robot.classId)?.palette.glow ?? "#9feee2",
                 }))}
                 damageBySource={damageBySource}
                 sourceLabel={(key) =>
@@ -1163,7 +1176,14 @@ export default function App() {
               const finalRobotFrame = finalFrame.robots.find((candidate) => candidate.id === robot.id);
               const damageDealt = result.damageByRobot[robot.id] ?? 0;
               return (
-                <div className="stat-box" key={robot.id}>
+                <div
+                  className="stat-box"
+                  key={robot.id}
+                  style={{
+                    borderColor: colorWithAlpha(robot.palette.body, 0.24),
+                    boxShadow: `inset 5px 0 0 ${robot.palette.body}`,
+                  }}
+                >
                   <span>{getClassName(robot.classId, classes)}</span>
                   <strong>{Math.round(robotFrame?.hp ?? 0)} HP</strong>
                   <small>
@@ -1245,7 +1265,7 @@ function DamageBySourceChart({
   damageBySource,
   sourceLabel,
 }: {
-  bots: { id: string; name: string; color: string }[];
+  bots: { id: string; name: string; color: string; accent: string }[];
   damageBySource: Record<string, Record<string, number>>;
   sourceLabel: (key: string) => string;
 }) {
@@ -1273,7 +1293,10 @@ function DamageBySourceChart({
         return (
           <div className="damage-chart__bot" key={bot.id}>
             <div className="damage-chart__head">
-              <span className="damage-chart__swatch" style={{ background: bot.color }} />
+              <span
+                className="damage-chart__swatch"
+                style={{ background: `linear-gradient(135deg, ${bot.color}, ${bot.accent})` }}
+              />
               <strong>{bot.name}</strong>
               <em>{Math.round(total)} dealt</em>
             </div>
@@ -1286,7 +1309,12 @@ function DamageBySourceChart({
                     {sourceLabel(key)}
                   </span>
                   <div className="damage-bar__track">
-                    <span style={{ width: `${(value / max) * 100}%`, background: bot.color }} />
+                    <span
+                      style={{
+                        width: `${(value / max) * 100}%`,
+                        background: `linear-gradient(90deg, ${bot.color}, ${bot.accent})`,
+                      }}
+                    />
                   </div>
                   <span className="damage-bar__value">{Math.round(value)}</span>
                 </div>
@@ -1374,7 +1402,7 @@ function HealthTimelineChart({
           const hpPercent = robotFrame ? hpPercentFor(robotFrame.hp, robotFrame.maxHp) : 0;
           return (
             <span key={robotSeries.robotId}>
-              <i style={{ background: robotSeries.color }} />
+              <i style={{ background: `linear-gradient(135deg, ${robotSeries.color}, ${robotSeries.accent})` }} />
               {robotSeries.name} {Math.round(hpPercent)}%
             </span>
           );
@@ -1486,7 +1514,8 @@ function buildHealthChartSeries(result: FightResult, duration: number): HealthCh
   return result.config.robots.map((robot) => ({
     robotId: robot.id,
     name: getClassName(robot.classId, result.config.classes),
-    color: robot.palette.glow || robot.palette.body,
+    color: robot.palette.body,
+    accent: robot.palette.glow || robot.palette.body,
     points: sampledFrames.map((frame) => {
       const robotFrame = frame.robots.find((candidate) => candidate.id === robot.id);
       return {
@@ -1580,6 +1609,31 @@ function hpPercentFor(hp: number, maxHp: number): number {
 function formatScore(score: number): string {
   const rounded = Math.round(score);
   return `${rounded > 0 ? "+" : ""}${rounded}`;
+}
+
+function colorWithAlpha(color: string, alpha: number): string {
+  if (!color.startsWith("#")) {
+    return color;
+  }
+
+  const hex = color.slice(1);
+  const normalized =
+    hex.length === 3
+      ? hex
+          .split("")
+          .map((character) => character + character)
+          .join("")
+      : hex;
+  const value = Number.parseInt(normalized, 16);
+
+  if (!Number.isFinite(value) || normalized.length !== 6) {
+    return color;
+  }
+
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function formatEvent(event: FightResult["events"][number], config: FightConfig): string {

@@ -19,6 +19,7 @@ const FIELD_PADDING_X = 64;
 const FIELD_GAP_TOP = 28;
 const FIELD_GAP_BOTTOM = 44;
 const ROBOT_RADIUS = 38;
+const HUD_SIDE_INSET = 56;
 // How long the movement slot / weapon list visibly spins after each pick before
 // locking onto the result. Matches the half-second display window in the brief.
 const SLOT_SPIN_SECONDS = 0.5;
@@ -27,7 +28,7 @@ const SLOT_SPIN_SECONDS = 0.5;
 // across the bottom. Inset the HUD by these "safe-area" margins so the names,
 // HP bars, and action log never end up hidden underneath that overlay.
 const SAFE_TOP_INSET = 104;
-const SAFE_BOTTOM_INSET = 232;
+const SAFE_BOTTOM_INSET = 186;
 
 type Layout = {
   width: number;
@@ -180,13 +181,13 @@ function drawTopBar(
 function topSlots(robots: RobotFrame[], layout: Layout): Rect[] {
   if (robots.length <= 2) {
     return [
-      { x: 28, y: layout.topBar.y + 22, width: 300, height: 118 },
-      { x: layout.width - 328, y: layout.topBar.y + 22, width: 300, height: 118 },
+      { x: HUD_SIDE_INSET, y: layout.topBar.y + 22, width: 300, height: 118 },
+      { x: layout.width - HUD_SIDE_INSET - 300, y: layout.topBar.y + 22, width: 300, height: 118 },
     ];
   }
 
   return robots.slice(0, 4).map((_, index) => ({
-    x: index % 2 === 0 ? 24 : layout.width - 294,
+    x: index % 2 === 0 ? HUD_SIDE_INSET : layout.width - HUD_SIDE_INSET - 270,
     y: layout.topBar.y + (index < 2 ? 18 : 88),
     width: 270,
     height: 64,
@@ -423,12 +424,12 @@ function drawThrownMine(
     const triggerRadius = effect.radius * scale;
     const pulse = 0.5 + 0.5 * Math.sin(effect.age * 6);
     context.globalAlpha = 0.18 + pulse * 0.22;
-    context.fillStyle = "#ff8f4f";
+    context.fillStyle = effect.color;
     context.beginPath();
     context.arc(0, 0, triggerRadius, 0, Math.PI * 2);
     context.fill();
     context.globalAlpha = 0.5 + pulse * 0.4;
-    context.strokeStyle = "#ff8f4f";
+    context.strokeStyle = effect.color;
     context.lineWidth = 2;
     context.stroke();
   }
@@ -436,7 +437,7 @@ function drawThrownMine(
   context.globalAlpha = 1;
 
   // Spikes radiating from the casing.
-  context.strokeStyle = armed ? "#ff8f4f" : "#caa64a";
+  context.strokeStyle = effect.color;
   context.lineWidth = 3;
   const spikes = 8;
   for (let index = 0; index < spikes; index += 1) {
@@ -449,7 +450,7 @@ function drawThrownMine(
 
   // Casing.
   context.shadowBlur = armed ? 14 : 6;
-  context.shadowColor = armed ? "#ff6a3d" : "#000000";
+  context.shadowColor = armed ? effect.color : "#000000";
   context.fillStyle = "#3a3326";
   context.strokeStyle = "#1d1a14";
   context.lineWidth = 3;
@@ -461,16 +462,15 @@ function drawThrownMine(
 
   // Status light: blinks faster as it nears arming, solid red once armed.
   let lightOn = true;
-  let lightColor = "#ffdd78";
+  let lightColor = effect.color;
   if (armed) {
-    lightColor = "#ff5a3c";
+    lightColor = effect.color;
     lightOn = true;
   } else if (arming) {
     const blinkRate = 3 + Math.max(0, 1.5 - secondsToArm) * 9;
     lightOn = Math.sin(effect.age * blinkRate * Math.PI) > 0;
-    lightColor = "#ffd166";
   } else {
-    lightColor = "#9feee2";
+    lightColor = effect.color;
   }
 
   if (lightOn) {
@@ -504,10 +504,10 @@ function drawBladeEffect(
   context.lineCap = "round";
   context.lineJoin = "round";
   context.shadowBlur = holding ? 18 : 30;
-  context.shadowColor = "#ff0055";
+  context.shadowColor = effect.color;
 
   if (holding) {
-    context.strokeStyle = "#ff0055";
+    context.strokeStyle = effect.color;
     context.lineWidth = 12;
     context.beginPath();
     context.moveTo(28, 0);
@@ -520,7 +520,7 @@ function drawBladeEffect(
     context.lineTo(radius * 0.88, 0);
     context.stroke();
   } else {
-    context.strokeStyle = "rgba(255, 0, 85, 0.82)";
+    context.strokeStyle = colorWithAlpha(effect.color, 0.82);
     context.lineWidth = 28;
     context.beginPath();
     context.arc(0, 0, radius * 0.78, -1.65, 0.25);
@@ -530,7 +530,7 @@ function drawBladeEffect(
     context.beginPath();
     context.arc(0, 0, radius * 0.78, -1.42, 0.1);
     context.stroke();
-    context.strokeStyle = "#ff0055";
+    context.strokeStyle = effect.color;
     context.lineWidth = 9;
     context.beginPath();
     context.moveTo(24, 0);
@@ -601,8 +601,7 @@ function drawBeamEffect(
   alpha: number
 ) {
   const isRailgun = effect.weaponId === "railgun";
-  const isRay = effect.weaponId === "ray";
-  const beamColor = isRailgun ? "#36e0ff" : isRay ? "#a9fffd" : effect.color;
+  const beamColor = effect.color;
 
   context.save();
   context.globalAlpha = alpha;
@@ -719,6 +718,8 @@ function drawProjectiles(
   layout: Layout
 ) {
   for (const projectile of frame.projectiles) {
+    const owner = frame.robots.find((robot) => robot.id === projectile.ownerId);
+    const palette = owner?.palette ?? fallbackWeaponPalette(projectile.weaponId);
     const position = mapPoint(projectile.position, arena, layout.arena);
     const isRocketLike = projectile.weaponId === "missile" || projectile.weaponId === "rocket";
     const radius = Math.max(isRocketLike ? 12 : 8, projectile.radius * 0.75);
@@ -726,28 +727,29 @@ function drawProjectiles(
     context.save();
     context.translate(position.x, position.y);
     context.rotate(projectile.weaponId === "boomerang" ? projectile.age * 13 : angle);
-    context.fillStyle = projectileColor(projectile.weaponId);
+    context.fillStyle = palette.body;
     context.strokeStyle = "#ffffff";
     context.lineWidth = 3;
 
     if (projectile.weaponId === "shotgun") {
       context.shadowBlur = 12;
-      context.shadowColor = "#ffd166";
+      context.shadowColor = palette.glow;
+      context.fillStyle = palette.glow;
       context.beginPath();
       context.arc(0, 0, radius, 0, Math.PI * 2);
       context.fill();
       context.stroke();
     } else if (projectile.weaponId === "blast-rifle") {
       context.shadowBlur = 16;
-      context.shadowColor = "#2bbcff";
-      context.fillStyle = "#2bbcff";
+      context.shadowColor = palette.glow;
+      context.fillStyle = palette.body;
       context.strokeStyle = "#ffffff";
       context.lineWidth = 2;
       context.beginPath();
       context.roundRect(-radius * 1.2, -radius * 0.55, radius * 2.4, radius * 1.1, radius * 0.55);
       context.fill();
       context.stroke();
-      context.strokeStyle = "#ffb3c6";
+      context.strokeStyle = palette.glow;
       context.lineWidth = 3;
       context.beginPath();
       context.moveTo(-radius * 1.7, 0);
@@ -757,14 +759,14 @@ function drawProjectiles(
       context.beginPath();
       context.arc(0, 0, radius * 1.15, Math.PI * 0.2, Math.PI * 1.55);
       context.lineWidth = 7;
-      context.strokeStyle = "#d7f8ff";
+      context.strokeStyle = palette.glow;
       context.stroke();
       context.strokeStyle = "#ffffff";
       context.lineWidth = 2;
       context.stroke();
     } else {
       context.shadowBlur = isRocketLike ? 18 : 10;
-      context.shadowColor = projectileColor(projectile.weaponId);
+      context.shadowColor = palette.glow;
       context.beginPath();
       context.moveTo(radius * 1.45, 0);
       context.lineTo(-radius * 0.9, -radius * 0.72);
@@ -775,7 +777,7 @@ function drawProjectiles(
       context.stroke();
 
       if (isRocketLike) {
-        context.fillStyle = "#ffdd78";
+        context.fillStyle = palette.glow;
         context.beginPath();
         context.moveTo(-radius * 0.85, 0);
         context.lineTo(-radius * 1.65, -radius * 0.44);
@@ -934,7 +936,7 @@ function drawActionBar(
   context.fillRect(rect.x, rect.y, rect.width, rect.height);
 
   const grid = actionBarGrid(frame.robots.length);
-  const padX = grid.columns >= 3 ? 22 : 29;
+  const padX = HUD_SIDE_INSET + (grid.columns >= 3 ? 0 : 8);
   const padY = grid.rows > 1 ? 18 : 22;
   const panelGap = grid.columns >= 3 ? 14 : 18;
   const rowGap = grid.rows > 1 ? 14 : 0;
@@ -1028,7 +1030,7 @@ function drawBotActionPanel(
     { x: padX, y: movementY, width: innerWidth, height: movementHeight }
   );
 
-  drawWeaponList(context, config?.arsenal ?? [], weapon, robot.palette.glow, time, {
+  drawWeaponList(context, config?.arsenal ?? [], weapon, robot, time, {
     x: padX,
     y: weaponY,
     width: innerWidth,
@@ -1065,7 +1067,7 @@ function drawMovementSlot(
 
   context.save();
   context.fillStyle = "rgba(8, 13, 19, 0.92)";
-  context.strokeStyle = spinning ? "#ffdd78" : robot.palette.glow;
+  context.strokeStyle = robot.palette.glow;
   context.lineWidth = spinning ? 3 : 2;
   context.beginPath();
   context.roundRect(rect.x, rect.y, rect.width, rect.height, 8);
@@ -1099,7 +1101,7 @@ function drawMovementSlot(
 
   // Center selection guides.
   context.save();
-  context.strokeStyle = spinning ? "rgba(255, 221, 120, 0.6)" : "rgba(159, 238, 226, 0.45)";
+  context.strokeStyle = spinning ? colorWithAlpha(robot.palette.glow, 0.72) : colorWithAlpha(robot.palette.glow, 0.45);
   context.lineWidth = 2;
   context.beginPath();
   context.moveTo(rect.x + 6, rect.y + rect.height / 2 - 18);
@@ -1116,7 +1118,7 @@ function drawWeaponList(
   context: CanvasRenderingContext2D,
   arsenal: WeaponId[],
   event: Extract<FightEvent, { type: "weapon" }> | undefined,
-  accent: string,
+  robot: RobotFrame,
   time: number,
   rect: Rect
 ) {
@@ -1141,12 +1143,12 @@ function drawWeaponList(
   list.forEach((weaponId, index) => {
     const active = index === highlightIndex;
     context.save();
-    context.fillStyle = active ? "rgba(255, 221, 120, 0.24)" : "rgba(255, 255, 255, 0.08)";
-    context.strokeStyle = active ? "#ffdd78" : accent;
+    context.fillStyle = active ? colorWithAlpha(robot.palette.body, 0.26) : colorWithAlpha(robot.palette.glow, 0.1);
+    context.strokeStyle = active ? robot.palette.glow : colorWithAlpha(robot.palette.glow, 0.72);
     context.lineWidth = active ? 3 : 1.5;
     if (active && spinning) {
       context.shadowBlur = 16;
-      context.shadowColor = "#ffdd78";
+      context.shadowColor = robot.palette.glow;
     }
     context.beginPath();
     context.roundRect(x, y, tileSize, tileSize, 8);
@@ -1158,7 +1160,7 @@ function drawWeaponList(
     if (!active) {
       context.globalAlpha = 0.7;
     }
-    drawWeaponIcon(context, weaponId, { x, y, width: tileSize, height: tileSize });
+    drawWeaponIcon(context, weaponId, { x, y, width: tileSize, height: tileSize }, robot.palette);
     context.restore();
 
     x += tileSize + gap;
@@ -1214,7 +1216,16 @@ function mapPoint(point: Vec2, arena: ArenaConfig, rect: Rect): Vec2 {
   };
 }
 
-function projectileColor(weaponId: WeaponId): string {
+function fallbackWeaponPalette(weaponId: WeaponId): RobotFrame["palette"] {
+  const body = fallbackWeaponColor(weaponId);
+  return {
+    body,
+    trim: "#202b35",
+    glow: body,
+  };
+}
+
+function fallbackWeaponColor(weaponId: WeaponId): string {
   switch (weaponId) {
     case "missile":
       return "#ff8f4f";
@@ -1242,9 +1253,16 @@ function projectileColor(weaponId: WeaponId): string {
   }
 }
 
-function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, rect: Rect) {
+function drawWeaponIcon(
+  context: CanvasRenderingContext2D,
+  weaponId: WeaponId,
+  rect: Rect,
+  palette: RobotFrame["palette"]
+) {
   const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-  const color = projectileColor(weaponId);
+  const color = palette.body;
+  const accent = palette.glow;
+  const trim = palette.trim;
 
   context.save();
   context.translate(center.x, center.y);
@@ -1274,7 +1292,7 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
       context.lineTo(-10, 14);
       context.closePath();
       context.fill();
-      context.fillStyle = "#ffdd78";
+      context.fillStyle = accent;
       context.beginPath();
       context.moveTo(-12, 0);
       context.lineTo(-24, -8);
@@ -1285,6 +1303,7 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
       break;
     case "boomerang":
       context.lineWidth = 9;
+      context.strokeStyle = accent;
       context.beginPath();
       context.arc(0, 0, 20, Math.PI * 0.15, Math.PI * 1.45);
       context.stroke();
@@ -1294,7 +1313,7 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
       break;
     case "blade":
       context.rotate(-0.55);
-      context.strokeStyle = "#ff0055";
+      context.strokeStyle = accent;
       context.lineWidth = 8;
       context.beginPath();
       context.moveTo(-23, 9);
@@ -1306,7 +1325,7 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
       context.moveTo(-10, 1);
       context.lineTo(14, -13);
       context.stroke();
-      context.fillStyle = "#2b1219";
+      context.fillStyle = trim;
       context.fillRect(-25, 6, 12, 7);
       break;
     case "blast-rifle":
@@ -1400,7 +1419,7 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
       context.lineTo(2, 10);
       context.closePath();
       context.fill();
-      context.fillStyle = "#ffdd78";
+      context.fillStyle = accent;
       context.beginPath();
       context.moveTo(-16, -6);
       context.lineTo(-28, -10);
@@ -1413,6 +1432,31 @@ function drawWeaponIcon(context: CanvasRenderingContext2D, weaponId: WeaponId, r
   }
 
   context.restore();
+}
+
+function colorWithAlpha(color: string, alpha: number): string {
+  if (!color.startsWith("#")) {
+    return color;
+  }
+
+  const hex = color.slice(1);
+  const normalized =
+    hex.length === 3
+      ? hex
+          .split("")
+          .map((character) => character + character)
+          .join("")
+      : hex;
+  const value = Number.parseInt(normalized, 16);
+
+  if (!Number.isFinite(value) || normalized.length !== 6) {
+    return color;
+  }
+
+  const red = (value >> 16) & 255;
+  const green = (value >> 8) & 255;
+  const blue = value & 255;
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 function healthShakeFor(robotId: string, time: number, events: FightEvent[]): number {

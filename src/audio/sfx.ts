@@ -51,14 +51,14 @@ function playSound(
       break;
 
     case "charge":
-      // Bigger capacitor spin-up: low engine rise + high coil whine + sparks.
-      tone(context, output, when, 0.95, 80, 520, "sawtooth", 0.045);
-      tone(context, output, when + 0.06, 0.9, 420, 2100, "sine", 0.045);
-      tone(context, output, when + 0.18, 0.72, 1200, 2800, "triangle", 0.035);
-      tone(context, output, when + 0.42, 0.42, 220, 880, "square", 0.025);
-      noiseBurst(context, output, when + 0.24, 0.12, 2600, 0.035);
-      noiseBurst(context, output, when + 0.48, 0.1, 3400, 0.04);
-      noiseBurst(context, output, when + 0.7, 0.09, 4200, 0.045);
+      // Capacitor spin-up: lower coil rise with muted static sparks.
+      tone(context, output, when, 0.95, 70, 360, "sawtooth", 0.045);
+      tone(context, output, when + 0.06, 0.9, 220, 980, "sine", 0.04);
+      tone(context, output, when + 0.18, 0.72, 520, 1300, "triangle", 0.028);
+      tone(context, output, when + 0.42, 0.42, 160, 520, "square", 0.022);
+      noiseBurst(context, output, when + 0.24, 0.12, 1400, 0.03);
+      noiseBurst(context, output, when + 0.48, 0.1, 1900, 0.032);
+      noiseBurst(context, output, when + 0.7, 0.09, 2400, 0.034);
       break;
 
     case "laser":

@@ -272,7 +272,7 @@ export function simulateFight(config: FightConfig): FightResult {
       for (const robot of robots) {
         integrateRobot(robot, config, slowStep);
       }
-      updateProjectileVisuals(projectiles, effects, slowTime, slowStep);
+      updateProjectileVisuals(projectiles, robots, effects, slowTime, slowStep);
       pruneEffects(effects, slowTime);
     }
 
@@ -636,7 +636,7 @@ function fireWeapon(input: {
       explosionRadius: weapon.radius + 78,
     });
     effects.push(
-      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 16)), weapon.radius + 20, time, "#ff8f4f", {
+      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 16)), weapon.radius + 20, time, attacker.palette.glow, {
         weaponId: weapon.id,
       })
     );
@@ -682,7 +682,7 @@ function fireWeapon(input: {
       },
     });
     effects.push(
-      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), weapon.radius + 24, time, "#d7f8ff", {
+      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), weapon.radius + 24, time, attacker.palette.glow, {
         weaponId: weapon.id,
       })
     );
@@ -742,7 +742,7 @@ function fireWeapon(input: {
       explosionRadius: 0,
     });
     effects.push(
-      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), weapon.radius + 24, time, "#ffdd78", {
+      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), weapon.radius + 24, time, attacker.palette.glow, {
         weaponId: weapon.id,
       })
     );
@@ -780,7 +780,7 @@ function fireWeapon(input: {
       });
     }
     effects.push(
-      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 22)), 36, time, "#ffd166", {
+      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 22)), 36, time, attacker.palette.glow, {
         weaponId: weapon.id,
       })
     );
@@ -837,11 +837,11 @@ function fireWeapon(input: {
     const baseReach = Number.isFinite(weapon.range) ? weapon.range : weapon.radius + 96;
     const empReach = baseReach * EMP_RADIUS_MULTIPLIER;
     effects.push(
-      createEffect("emp", attacker.position, empReach, time, "#a9fffd", {
+      createEffect("emp", attacker.position, empReach, time, attacker.palette.glow, {
         weaponId: weapon.id,
       })
     );
-    addElectricParticles(effects, attacker.position, time, empReach);
+    addElectricParticles(effects, attacker.position, time, empReach, attacker.palette);
     for (const robot of input.robots) {
       if (robot.id !== attacker.id && robot.alive && distance(robot.position, attacker.position) <= empReach) {
         applyDamage(attacker, robot, weapon, time, events, damageByRobot, effects);
@@ -958,7 +958,7 @@ function updateProjectiles(
           projectile.position,
           projectile.weaponId === "missile" ? projectile.radius + 8 : projectile.radius,
           time,
-          projectile.weaponId === "missile" ? "#ff8f4f" : "#a9fffd",
+          owner?.palette.glow ?? (projectile.weaponId === "missile" ? "#ff8f4f" : "#a9fffd"),
           { weaponId: projectile.weaponId }
         )
       );
@@ -1015,7 +1015,7 @@ function updateProjectiles(
       } else if (projectile.weaponId === "missile") {
         // Small flare puff when a homing missile burns out without a hit.
         effects.push(
-          createEffect("muzzle", projectile.position, projectile.radius + 10, time, "#ff8f4f", {
+          createEffect("muzzle", projectile.position, projectile.radius + 10, time, owner?.palette.glow ?? "#ff8f4f", {
             weaponId: "missile",
           })
         );
@@ -1035,12 +1035,20 @@ function detonateRocket(
   time: number
 ) {
   effects.push(
-    createEffect("explosion", projectile.position, projectile.explosionRadius + 30, time, "#ff8f4f", {
+    createEffect("explosion", projectile.position, projectile.explosionRadius + 30, time, owner?.palette.glow ?? "#ff8f4f", {
       weaponId: "rocket",
     })
   );
   events.push({ type: "sound", time, sound: "explosion" });
-  addDamageBits(effects, projectile.position, { x: 0, y: -1 }, { body: "#ff8f4f", trim: "#ffdd78", glow: "#ffffff" }, time, "rocket", 18);
+  addDamageBits(
+    effects,
+    projectile.position,
+    { x: 0, y: -1 },
+    owner?.palette ?? { body: "#ff8f4f", trim: "#ffdd78", glow: "#ffffff" },
+    time,
+    "rocket",
+    18
+  );
 
   if (!owner) {
     return;
@@ -1096,12 +1104,20 @@ function updateMines(
 
     const owner = robots.find((robot) => robot.id === mine.ownerId);
     effects.push(
-      createEffect("explosion", mine.position, mine.explosionRadius + 30, time, "#ff8f4f", {
+      createEffect("explosion", mine.position, mine.explosionRadius + 30, time, owner?.palette.glow ?? "#ff8f4f", {
         weaponId: "mine",
       })
     );
     events.push({ type: "sound", time, sound: "explosion" });
-    addDamageBits(effects, mine.position, { x: 0, y: -1 }, { body: "#f6c85f", trim: "#ff8f4f", glow: "#ffffff" }, time, "mine", 16);
+    addDamageBits(
+      effects,
+      mine.position,
+      { x: 0, y: -1 },
+      owner?.palette ?? { body: "#f6c85f", trim: "#ff8f4f", glow: "#ffffff" },
+      time,
+      "mine",
+      16
+    );
 
     if (owner) {
       for (const robot of robots) {
@@ -1136,12 +1152,14 @@ function clampToArena(point: Vec2, arena: FightConfig["arena"], margin: number):
 
 function updateProjectileVisuals(
   projectiles: ProjectileState[],
+  robots: RobotState[],
   effects: EffectFrame[],
   time: number,
   dt: number
 ) {
   for (let index = projectiles.length - 1; index >= 0; index -= 1) {
     const projectile = projectiles[index];
+    const owner = robots.find((robot) => robot.id === projectile.ownerId);
     projectile.age += dt;
     projectile.position = add(projectile.position, mul(projectile.velocity, dt));
 
@@ -1153,7 +1171,7 @@ function updateProjectileVisuals(
           projectile.position,
           projectile.weaponId === "missile" ? projectile.radius + 8 : projectile.radius,
           time,
-          projectile.weaponId === "missile" ? "#ff8f4f" : "#a9fffd",
+          owner?.palette.glow ?? (projectile.weaponId === "missile" ? "#ff8f4f" : "#a9fffd"),
           { weaponId: projectile.weaponId }
         )
       );
@@ -1255,7 +1273,7 @@ function updatePendingStrikes(
     const endPosition = add(startPosition, mul(fireDirection, RAILGUN_BEAM_LENGTH));
 
     effects.push(
-      createEffect("beam", startPosition, 30, time, "#36e0ff", {
+      createEffect("beam", startPosition, 30, time, attacker?.palette.glow ?? "#36e0ff", {
         endPosition,
         weaponId: strike.weapon.id,
       })
@@ -1274,7 +1292,7 @@ function updatePendingStrikes(
       );
     } else {
       effects.push(
-        createEffect("spark", endPosition, 24, time, "#36e0ff", {
+        createEffect("spark", endPosition, 24, time, attacker?.palette.glow ?? "#36e0ff", {
           weaponId: strike.weapon.id,
         })
       );
@@ -1325,7 +1343,7 @@ function updatePendingShots(
       explosionRadius: 0,
     });
     effects.push(
-      createEffect("muzzle", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), shot.weapon.radius + 18, time, "#2bbcff", {
+      createEffect("muzzle", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), shot.weapon.radius + 18, time, attacker.palette.glow, {
         weaponId: shot.weapon.id,
       })
     );
@@ -1373,7 +1391,7 @@ function updateBladeSwings(
         distance(projectile.position, attacker.position) <= bladeReach + projectile.radius
       ) {
         effects.push(
-          createEffect("spark", projectile.position, projectile.radius + 20, time, "#ff0055", {
+          createEffect("spark", projectile.position, projectile.radius + 20, time, attacker.palette.glow, {
             weaponId: swing.weapon.id,
           })
         );
@@ -1392,7 +1410,7 @@ function updateBladeSwings(
         swing.hitRobotIds.add(target.id);
         applyDamage(attacker, target, swing.weapon, time, events, damageByRobot, effects);
         effects.push(
-          createEffect("hit", target.position, swing.weapon.radius * 0.36, time, "#ff0055", {
+          createEffect("hit", target.position, swing.weapon.radius * 0.36, time, attacker.palette.glow, {
             weaponId: swing.weapon.id,
           })
         );
@@ -1458,9 +1476,10 @@ function addElectricParticles(
   effects: EffectFrame[],
   position: Vec2,
   time: number,
-  radius: number
+  radius: number,
+  palette: RobotConfig["palette"]
 ) {
-  const colors = ["#a9fffd", "#7ef7c7", "#d7f8ff", "#ffffff", "#36e0ff"];
+  const colors = [palette.glow, palette.body, palette.trim, "#ffffff"];
   const arcCount = 24;
 
   for (let index = 0; index < arcCount; index += 1) {
@@ -1599,7 +1618,7 @@ function captureFrame(
           radius: 14,
           age: Math.max(0, time - strike.createdAt),
           duration: strike.resolvesAt - strike.createdAt,
-          color: "#36e0ff",
+          color: attacker.palette.glow,
         };
       })
       .filter((effect): effect is EffectFrame => effect !== undefined),
@@ -1624,7 +1643,7 @@ function captureFrame(
           radius: swing.weapon.range,
           age: time - swing.startedAt,
           duration: swing.expiresAt - swing.startedAt,
-          color: "#ff0055",
+          color: attacker.palette.glow,
           spin: attacker.angle + swingProgress * Math.PI * 2,
           variant: time < swing.swingStartAt ? 0 : 1,
         };
@@ -1652,7 +1671,9 @@ function captureFrame(
         radius: mine.triggerRadius,
         age: time - mine.thrownAt,
         duration: mine.expiresAt - mine.thrownAt,
-        color: armed ? "#ff8f4f" : "#f6c85f",
+        color: armed
+          ? robots.find((robot) => robot.id === mine.ownerId)?.palette.glow ?? "#ff8f4f"
+          : robots.find((robot) => robot.id === mine.ownerId)?.palette.body ?? "#f6c85f",
         variant: flying ? 0 : armed ? 2 : 1,
         spin: mine.armAt - time, // seconds until armed (negative once armed)
       };
