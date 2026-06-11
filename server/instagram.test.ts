@@ -52,8 +52,12 @@ describe("instagram publishing helpers", () => {
       fetcher,
     });
 
-    const request = JSON.parse(String(fetcher.mock.calls[0][1]?.body)) as { model: string };
+    const request = JSON.parse(String(fetcher.mock.calls[0][1]?.body)) as {
+      max_output_tokens: number;
+      model: string;
+    };
     expect(request.model).toBe("gpt-5.5");
+    expect(request.max_output_tokens).toBe(660);
   });
 
   it("normalizes remote API errors", () => {

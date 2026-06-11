@@ -75,7 +75,7 @@ export async function generateReelCaption(
     body: JSON.stringify({
       model: options.model ?? readOpenAIModel(env),
       input: buildCaptionPrompt(summary),
-      max_output_tokens: 220,
+      max_output_tokens: 660,
     }),
   });
   const payload = await readResponseJson(response);
@@ -99,7 +99,7 @@ export function buildCaptionPrompt(summary: ReelCaptionSummary): string {
     "Caption style example:",
     `${summary.botNames.join(" vs ")} - Who will win?",`,
     
-    "<insert random fun fact that's nothing to do with the match here, a random animal / anthropology / history / asia / gaming fun fact, format: no em dashes, add line breaks>",
+    "<insert random fun fact that's nothing to do with the match here, a random animal / anthropology / history / asia / gaming fun fact, format: no em dashes, add line breaks, keep word limit around 200 words, more quantitative answers, keep the fun fact without double line breaks, but the title and hashtags with 2 line breaks>",
     "<ie. In imperial China, crickets were not just insects — they were pets, musical companions, and tiny competitive athletes. The tradition goes back roughly 2,000 years in broader “singing insect” culture, while keeping crickets in cages became especially popular during the Tang dynasty, 618-907 AD. Court women reportedly kept them in small golden cages so they could listen to their chirping at night. By the Song dynasty, 960–1279 AD, cricket fighting had become a serious pastime, with male crickets matched almost like boxers by size and strength>",
     "And always end on these hashtags: #BotLab #BotLabAction #BotSimultions",
   ].join("\n");
