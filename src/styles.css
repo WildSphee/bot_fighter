@@ -188,6 +188,7 @@ button {
 .metric-panel,
 .score-band,
 .event-feed,
+.telemetry-tabs,
 .health-chart,
 .stat-box,
 .soundtrack-panel {
@@ -501,6 +502,95 @@ button {
   font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.telemetry-tabs {
+  padding: 10px;
+}
+
+.telemetry-tabs .tab-row {
+  margin-bottom: 12px;
+}
+
+.telemetry-tabs .event-feed {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+.damage-chart {
+  display: grid;
+  gap: 16px;
+}
+
+.damage-chart__bot {
+  display: grid;
+  gap: 7px;
+}
+
+.damage-chart__head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.damage-chart__head strong {
+  color: #24303a;
+  font-size: 14px;
+}
+
+.damage-chart__head em {
+  color: #6a7682;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  margin-left: auto;
+}
+
+.damage-chart__swatch {
+  border-radius: 3px;
+  display: inline-block;
+  height: 12px;
+  width: 12px;
+}
+
+.damage-bar {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 84px 1fr 34px;
+}
+
+.damage-bar__label {
+  color: #24303a;
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.damage-bar__track {
+  background: rgba(42, 48, 54, 0.1);
+  border-radius: 999px;
+  height: 12px;
+  overflow: hidden;
+}
+
+.damage-bar__track span {
+  border-radius: 999px;
+  display: block;
+  height: 100%;
+  min-width: 3px;
+}
+
+.damage-bar__value {
+  color: #24303a;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  text-align: right;
 }
 
 .health-chart {

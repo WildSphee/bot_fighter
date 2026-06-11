@@ -15,7 +15,7 @@ import type {
   WeaponId,
   RobotClass,
 } from "./types";
-import { add, angleTo, clamp, distance, mul, normalize, rotate90, sub } from "./vector";
+import { add, angleTo, clamp, distance, mul, normalize, rotate90, sub, ZERO } from "./vector";
 
 type RobotState = RobotFrame & {
   arsenal: RobotConfig["arsenal"];
@@ -527,6 +527,13 @@ function applyCollisionDamage(
 
   const direction = normalize(sub(target.position, attacker.position));
   events.push({ type: "sound", time, sound: "impact" });
+  events.push({
+    type: "collision",
+    time,
+    attackerId: attacker.id,
+    targetId: target.id,
+    damage: Number(damage.toFixed(2)),
+  });
   addDamageToast(effects, target.position, damage, time);
   addDamageBits(effects, target.position, direction, target.palette, time, "ray", 5);
 
@@ -981,7 +988,7 @@ function updateProjectiles(
           damage: projectile.damage,
           knockback: projectile.knockback,
         };
-        applyDamage(owner, hitRobot, projectileWeapon, time, events, damageByRobot, effects);
+        applyDamage(owner, hitRobot, projectileWeapon, time, events, damageByRobot, effects, projectile.velocity);
         effects.push(
           createEffect(projectile.weaponId === "shotgun" ? "spark" : "explosion", projectile.position, projectile.radius + 32, time, owner.palette.glow, {
             weaponId: projectile.weaponId,
@@ -1042,7 +1049,8 @@ function detonateRocket(
       damage: projectile.damage * falloff,
       knockback: projectile.knockback * falloff,
     };
-    applyDamage(owner, robot, splashWeapon, time, events, damageByRobot, effects);
+    // Blast shoves each robot radially outward from the explosion centre.
+    applyDamage(owner, robot, splashWeapon, time, events, damageByRobot, effects, sub(robot.position, projectile.position));
   }
 }
 
@@ -1097,7 +1105,8 @@ function updateMines(
           damage: mine.damage * falloff,
           knockback: mine.knockback * falloff,
         };
-        applyDamage(owner, robot, splashWeapon, time, events, damageByRobot, effects);
+        // Blast shoves each robot radially outward from the mine.
+        applyDamage(owner, robot, splashWeapon, time, events, damageByRobot, effects, sub(robot.position, mine.position));
       }
     }
 
@@ -1150,7 +1159,12 @@ function applyDamage(
   time: number,
   events: FightEvent[],
   damageByRobot: Record<string, number>,
-  effects: EffectFrame[]
+  effects: EffectFrame[],
+  // The direction the hit actually travelled (projectile velocity, or the
+  // outward blast vector for explosions). Knockback follows this so a rocket
+  // hitting from behind shoves the target forward. Falls back to pushing the
+  // target away from the attacker when no impact direction is supplied.
+  impactDirection?: Vec2
 ) {
   const targetClass = target.classProfile;
   const shieldAbsorb = Math.min(target.shield, weapon.damage * 0.7);
@@ -1161,7 +1175,10 @@ function applyDamage(
   attacker.damageDone += damage;
   damageByRobot[attacker.id] += damage;
 
-  const direction = normalize(sub(target.position, attacker.position));
+  let direction = impactDirection ? normalize(impactDirection) : ZERO;
+  if (direction.x === 0 && direction.y === 0) {
+    direction = normalize(sub(target.position, attacker.position));
+  }
   target.velocity = add(target.velocity, mul(direction, (weapon.knockback * KNOCKBACK_MULTIPLIER) / targetClass.mass));
 
   events.push({

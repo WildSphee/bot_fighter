@@ -2,9 +2,6 @@ import {
   Crosshair,
   Dices,
   Download,
-  ExternalLink,
-  FileJson,
-  Music,
   Plus,
   Play,
   RefreshCw,
@@ -19,7 +16,6 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NCS_TRACKS, NCS_USAGE_POLICY_URL } from "./audio/ncsCatalog";
 import { createSoundEngine, type SoundEngine } from "./audio/sfx";
 import { recordReel } from "./export/recordReel";
 import { drawFightFrame, drawIntroCard } from "./render/drawFight";
@@ -48,7 +44,7 @@ import type {
   WeaponDefinition,
 } from "./sim/types";
 
-type Tab = "setup" | "dice" | "weapons" | "movement" | "export" | "history";
+type Tab = "setup" | "dice" | "weapons" | "movement" | "history";
 
 type HistoryItem = {
   id: string;
@@ -154,7 +150,7 @@ export default function App() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [renderProgress, setRenderProgress] = useState<number | null>(null);
-  const [exportStatus, setExportStatus] = useState("Ready");
+  const [telemetryView, setTelemetryView] = useState<"damage" | "timeline">("damage");
   const [frameIndex, setFrameIndex] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>(() => readHistory());
   const [weapons, setWeapons] = useState<WeaponDefinition[]>(() => readWeaponProfiles());
@@ -204,6 +200,26 @@ export default function App() {
     .filter((event) => event.type === "hit")
     .slice(-8)
     .reverse();
+
+  // Total damage each bot dealt, split by source (weapon id, or "collision" for
+  // bot-on-bot contact). Weapon damage is recovered from hit events and contact
+  // damage from collision events, so this stays in sync with the sim for free.
+  const damageBySource = useMemo(() => {
+    const totals: Record<string, Record<string, number>> = {};
+    for (const robot of result.config.robots) {
+      totals[robot.id] = {};
+    }
+    for (const event of result.events) {
+      if (event.type === "hit") {
+        const bucket = (totals[event.attackerId] ??= {});
+        bucket[event.weaponId] = (bucket[event.weaponId] ?? 0) + event.damage;
+      } else if (event.type === "collision") {
+        const bucket = (totals[event.attackerId] ??= {});
+        bucket.collision = (bucket.collision ?? 0) + event.damage;
+      }
+    }
+    return totals;
+  }, [result]);
 
   useEffect(() => {
     setFrameIndex(0);
@@ -482,19 +498,6 @@ export default function App() {
     window.localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
   }
 
-  function downloadConfig() {
-    saveToHistory(result);
-    const blob = new Blob([JSON.stringify({ config, resultSummary: summarizeResult(result) }, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${seed}-fight-config.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-  }
-
   function handleRenderProgress(fraction: number) {
     setRenderProgress(fraction);
     console.log(`Rendering reel: ${Math.round(fraction * 100)}%`);
@@ -509,7 +512,6 @@ export default function App() {
     setIsRecording(true);
     setRenderProgress(0);
     setIsPlaying(false);
-    setExportStatus("Recording");
 
     try {
       const recording = await recordReel(canvas, result, soundEnabled, handleRenderProgress);
@@ -520,9 +522,8 @@ export default function App() {
       anchor.download = `${seed}-reel.${recording.extension}`;
       anchor.click();
       URL.revokeObjectURL(url);
-      setExportStatus(recording.extension.toUpperCase());
-    } catch (error) {
-      setExportStatus(error instanceof Error ? error.message : "Export failed");
+    } catch {
+      // Export failures surface in the console; the button re-enables below.
     } finally {
       setIsRecording(false);
       setRenderProgress(null);
@@ -691,13 +692,6 @@ export default function App() {
             >
               <Swords size={17} />
               Move
-            </button>
-            <button
-              className={activeTab === "export" ? "tab-button is-active" : "tab-button"}
-              onClick={() => setActiveTab("export")}
-            >
-              <Download size={17} />
-              Export
             </button>
             <button
               className={activeTab === "history" ? "tab-button is-active" : "tab-button"}
@@ -1060,63 +1054,6 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === "export" && (
-            <div className="panel-stack">
-              <section className="metric-panel">
-                <span>Preset</span>
-                <strong>1080 x 1920 / 30 fps</strong>
-              </section>
-              <section className="metric-panel">
-                <span>Winner</span>
-                <strong>{winner ? getClassName(winner.classId, classes) : "Draw"}</strong>
-              </section>
-              <section className="metric-panel">
-                <span>Runtime</span>
-                <strong>{result.duration.toFixed(1)}s</strong>
-              </section>
-              <button className="primary-button full-width" onClick={downloadConfig}>
-                <FileJson size={18} />
-                Export Fight Data
-              </button>
-              <button className="secondary-button full-width" onClick={exportReel} disabled={isRecording}>
-                <Download size={18} />
-                {isRecording ? "Recording Reel" : "Record Reel"}
-              </button>
-              <button className="primary-button full-width" onClick={openPostReel} disabled={isRecording || isPostingReel}>
-                <Send size={18} />
-                {isPostingReel ? "Posting Reel" : "Post Reel"}
-              </button>
-              <section className="metric-panel">
-                <span>Status</span>
-                <strong>{isPostingReel || postedMediaId || postError ? postStatus : exportStatus}</strong>
-              </section>
-              <section className="soundtrack-panel">
-                <div className="robot-editor__header">
-                  <Music size={17} />
-                  <strong>NCS credits</strong>
-                </div>
-                {NCS_TRACKS.map((track) => (
-                  <div className="track-row" key={track.title}>
-                    <div>
-                      <strong>{track.title}</strong>
-                      <span>{track.artists.join(", ")} · {track.genre}</span>
-                    </div>
-                    <button
-                      className="icon-button"
-                      title="Copy credit"
-                      onClick={() => void navigator.clipboard.writeText(track.credit)}
-                    >
-                      <FileJson size={16} />
-                    </button>
-                  </div>
-                ))}
-                <a className="policy-link" href={NCS_USAGE_POLICY_URL} target="_blank" rel="noreferrer">
-                  Usage policy
-                  <ExternalLink size={15} />
-                </a>
-              </section>
-            </div>
-          )}
 
           {activeTab === "history" && (
             <div className="history-list">
@@ -1166,15 +1103,51 @@ export default function App() {
             <small>{result.events.find((event) => event.type === "winner")?.reason ?? "pending"}</small>
           </section>
 
-          <section className="event-feed">
-            <h2>Timeline</h2>
-            {recentEvents.length === 0 && <p className="muted">No hits yet.</p>}
-            {recentEvents.map((event, index) => (
-              <div className="event-row" key={`${event.type}-${event.time}-${index}`}>
-                <time>{event.time.toFixed(1)}s</time>
-                <span>{formatEvent(event, config)}</span>
+          <section className="telemetry-tabs">
+            <div className="tab-row" role="tablist" aria-label="Telemetry views">
+              <button
+                className={telemetryView === "damage" ? "tab-button is-active" : "tab-button"}
+                role="tab"
+                aria-selected={telemetryView === "damage"}
+                onClick={() => setTelemetryView("damage")}
+              >
+                Damage
+              </button>
+              <button
+                className={telemetryView === "timeline" ? "tab-button is-active" : "tab-button"}
+                role="tab"
+                aria-selected={telemetryView === "timeline"}
+                onClick={() => setTelemetryView("timeline")}
+              >
+                Timeline
+              </button>
+            </div>
+
+            {telemetryView === "damage" ? (
+              <DamageBySourceChart
+                bots={syncedRobots.map((robot) => ({
+                  id: robot.id,
+                  name: getClassName(robot.classId, classes),
+                  color: classes.find((robotClass) => robotClass.id === robot.classId)?.palette.glow ?? "#9feee2",
+                }))}
+                damageBySource={damageBySource}
+                sourceLabel={(key) =>
+                  key === "collision"
+                    ? "Collision"
+                    : config.weapons.find((weapon) => weapon.id === key)?.name ?? key
+                }
+              />
+            ) : (
+              <div className="event-feed">
+                {recentEvents.length === 0 && <p className="muted">No hits yet.</p>}
+                {recentEvents.map((event, index) => (
+                  <div className="event-row" key={`${event.type}-${event.time}-${index}`}>
+                    <time>{event.time.toFixed(1)}s</time>
+                    <span>{formatEvent(event, config)}</span>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </section>
 
           <HealthTimelineChart
@@ -1264,6 +1237,65 @@ export default function App() {
         </div>
       )}
     </main>
+  );
+}
+
+function DamageBySourceChart({
+  bots,
+  damageBySource,
+  sourceLabel,
+}: {
+  bots: { id: string; name: string; color: string }[];
+  damageBySource: Record<string, Record<string, number>>;
+  sourceLabel: (key: string) => string;
+}) {
+  // Scale every bar against the single biggest source across all bots so the
+  // chart is comparable both within and between bots.
+  let max = 0;
+  for (const sources of Object.values(damageBySource)) {
+    for (const value of Object.values(sources)) {
+      max = Math.max(max, value);
+    }
+  }
+
+  if (max <= 0) {
+    return <p className="muted">No damage dealt yet. Run a preview to populate.</p>;
+  }
+
+  return (
+    <div className="damage-chart">
+      {bots.map((bot) => {
+        const rows = Object.entries(damageBySource[bot.id] ?? {})
+          .filter(([, value]) => value > 0)
+          .sort((left, right) => right[1] - left[1]);
+        const total = rows.reduce((sum, [, value]) => sum + value, 0);
+
+        return (
+          <div className="damage-chart__bot" key={bot.id}>
+            <div className="damage-chart__head">
+              <span className="damage-chart__swatch" style={{ background: bot.color }} />
+              <strong>{bot.name}</strong>
+              <em>{Math.round(total)} dealt</em>
+            </div>
+            {rows.length === 0 ? (
+              <p className="muted">No damage dealt.</p>
+            ) : (
+              rows.map(([key, value]) => (
+                <div className="damage-bar" key={key}>
+                  <span className="damage-bar__label" title={sourceLabel(key)}>
+                    {sourceLabel(key)}
+                  </span>
+                  <div className="damage-bar__track">
+                    <span style={{ width: `${(value / max) * 100}%`, background: bot.color }} />
+                  </div>
+                  <span className="damage-bar__value">{Math.round(value)}</span>
+                </div>
+              ))
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1418,16 +1450,6 @@ function readSettings(): GameSettings {
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
-}
-
-function summarizeResult(result: FightResult) {
-  return {
-    seed: result.config.seed,
-    winnerId: result.winnerId,
-    duration: result.duration,
-    damageByRobot: result.damageByRobot,
-    events: result.events,
-  };
 }
 
 function buildCaptionSummary(result: FightResult, underdogScore: number) {

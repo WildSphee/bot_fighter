@@ -232,6 +232,13 @@ export type FightEvent =
       sound: SoundEventType;
     }
   | {
+      type: "collision";
+      time: number;
+      attackerId: string;
+      targetId: string;
+      damage: number;
+    }
+  | {
       type: "death";
       time: number;
       robotId: string;
