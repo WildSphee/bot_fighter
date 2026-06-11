@@ -1,5 +1,10 @@
 import { createSoundEngine } from "../audio/sfx";
-import { drawFightFrame } from "../render/drawFight";
+import {
+  REEL_INTRO_SECONDS,
+  drawFightFrame,
+  drawReelIntroFrame,
+  getReelIntroNames,
+} from "../render/drawFight";
 import type { FightEvent, FightResult, SoundEventType } from "../sim/types";
 import { encodeReelOffline, supportsOfflineEncode } from "./encodeReelOffline";
 
@@ -83,9 +88,26 @@ async function recordReelRealtime(
 
   recorder.start(500);
 
+  // Lead with the "class vs class" intro card (silent, matching the preview),
+  // then play the fight frames so the recording opens like the preview does.
+  const introNames = getReelIntroNames(result);
+  const introFrames = Math.round(fps * REEL_INTRO_SECONDS);
+  const totalFrames = introFrames + result.frames.length;
+
   let lastEventTime = -0.01;
   let lastPercent = -1;
   onProgress?.(0);
+  for (let index = 0; index < introFrames; index += 1) {
+    drawReelIntroFrame(context, result, introNames);
+
+    const percent = Math.floor(((index + 1) / totalFrames) * 100);
+    if (percent !== lastPercent) {
+      lastPercent = percent;
+      onProgress?.((index + 1) / totalFrames);
+    }
+
+    await wait(1000 / fps);
+  }
   for (let index = 0; index < result.frames.length; index += 1) {
     const frame = result.frames[index];
     drawFightFrame(context, frame, result);
@@ -94,10 +116,10 @@ async function recordReelRealtime(
     }
     lastEventTime = frame.time;
 
-    const percent = Math.floor(((index + 1) / result.frames.length) * 100);
+    const percent = Math.floor(((introFrames + index + 1) / totalFrames) * 100);
     if (percent !== lastPercent) {
       lastPercent = percent;
-      onProgress?.((index + 1) / result.frames.length);
+      onProgress?.((introFrames + index + 1) / totalFrames);
     }
 
     await wait(1000 / fps);

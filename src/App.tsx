@@ -59,7 +59,20 @@ const CLASS_PROFILE_KEY = "bot-fighter-class-profiles";
 const MOVEMENT_PROFILE_KEY = "bot-fighter-movement-profiles";
 const WEAPON_PROFILE_KEY = "bot-fighter-weapon-profiles";
 const SETTINGS_KEY = "bot-fighter-settings";
-const API_BASE_URL = "http://localhost:8787";
+const API_BASE_URL = resolveApiBaseUrl();
+
+function resolveApiBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
+  if (configured) {
+    return configured.replace(/\/$/, "");
+  }
+  // Default to the backend on the same host the app is served from, so the
+  // portal works whether it's opened on localhost or a remote dev host.
+  if (typeof window !== "undefined" && window.location.hostname) {
+    return `${window.location.protocol}//${window.location.hostname}:8787`;
+  }
+  return "http://localhost:8787";
+}
 
 type GameSettings = {
   moveInterval: number;

@@ -1,6 +1,11 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { createSoundEngine } from "../audio/sfx";
-import { drawFightFrame } from "../render/drawFight";
+import {
+  REEL_INTRO_SECONDS,
+  drawFightFrame,
+  drawReelIntroFrame,
+  getReelIntroNames,
+} from "../render/drawFight";
 import type { FightResult } from "../sim/types";
 import type { ReelRecording } from "./recordReel";
 
@@ -69,7 +74,9 @@ export async function encodeReelOffline(
     framerate: fps,
   });
 
-  const totalFrames = result.frames.length;
+  const introNames = getReelIntroNames(result);
+  const introFrames = Math.round(fps * REEL_INTRO_SECONDS);
+  const totalFrames = introFrames + result.frames.length;
   const frameDuration = 1_000_000 / fps; // microseconds
   let lastPercent = -1;
   onProgress?.(0);
@@ -78,7 +85,13 @@ export async function encodeReelOffline(
       break;
     }
 
-    drawFightFrame(context, result.frames[index], result);
+    // Lead with the "class vs class" intro card, then the fight frames, so the
+    // exported reel opens exactly like the preview does.
+    if (index < introFrames) {
+      drawReelIntroFrame(context, result, introNames);
+    } else {
+      drawFightFrame(context, result.frames[index - introFrames], result);
+    }
     const frame = new VideoFrame(canvas, {
       timestamp: Math.round(index * frameDuration),
       duration: Math.round(frameDuration),
@@ -153,7 +166,11 @@ function drainQueue(encoder: VideoEncoder): Promise<void> {
 }
 
 async function renderAudioTrack(result: FightResult): Promise<AudioBuffer> {
-  const length = Math.ceil((result.duration + AUDIO_TAIL_SECONDS) * AUDIO_SAMPLE_RATE);
+  // Leading silence covers the intro card; offset every sound by the same amount
+  // so the fight audio lines up with the fight frames that follow the intro.
+  const length = Math.ceil(
+    (REEL_INTRO_SECONDS + result.duration + AUDIO_TAIL_SECONDS) * AUDIO_SAMPLE_RATE
+  );
   const offline = new OfflineAudioContext(1, length, AUDIO_SAMPLE_RATE);
   const engine = createSoundEngine({
     context: offline as unknown as AudioContext,
@@ -162,7 +179,7 @@ async function renderAudioTrack(result: FightResult): Promise<AudioBuffer> {
 
   for (const event of result.events) {
     if ("sound" in event) {
-      engine.play(event.sound, event.time);
+      engine.play(event.sound, event.time + REEL_INTRO_SECONDS);
     }
   }
 

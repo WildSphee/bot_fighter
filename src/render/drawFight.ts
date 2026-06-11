@@ -1500,6 +1500,31 @@ export function drawIntroCard(context: CanvasRenderingContext2D, names: string[]
   context.restore();
 }
 
+// How long the "class vs class" intro card sits at the head of an exported reel.
+// Mirrors the 2s intro the portal shows before preview playback so the recorded
+// video and the live preview open the same way.
+export const REEL_INTRO_SECONDS = 2;
+
+// Class names for the intro card, resolved from the fight's own config so any
+// custom-renamed classes are reflected (matching the portal's preview intro).
+export function getReelIntroNames(result: FightResult): string[] {
+  return result.config.robots.map((robot) => {
+    const robotClass = result.config.classes.find((entry) => entry.id === robot.classId);
+    return robotClass?.name ?? robot.classId;
+  });
+}
+
+// One intro frame: the opening fight frame with the "vs" card overlaid, exactly
+// as the preview renders it while the intro is showing.
+export function drawReelIntroFrame(
+  context: CanvasRenderingContext2D,
+  result: FightResult,
+  names: string[]
+) {
+  drawFightFrame(context, result.frames[0], result);
+  drawIntroCard(context, names);
+}
+
 function mapPoint(point: Vec2, arena: ArenaConfig, rect: Rect): Vec2 {
   return {
     x: rect.x + (point.x / arena.width) * rect.width,

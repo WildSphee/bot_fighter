@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a3a47"/>
+      <stop offset="1" stop-color="#202b35"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#ece7dd"/>
+  <!-- antenna -->
+  <line x1="32" y1="14" x2="32" y2="6" stroke="#187b70" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="32" cy="5" r="3" fill="#ffdd78"/>
+  <!-- head/chassis -->
+  <rect x="13" y="14" width="38" height="32" rx="9" fill="url(#body)" stroke="#187b70" stroke-width="2.5"/>
+  <!-- eyes -->
+  <circle cx="24" cy="29" r="5.5" fill="#3ee0c4"/>
+  <circle cx="40" cy="29" r="5.5" fill="#3ee0c4"/>
+  <circle cx="24" cy="29" r="2.2" fill="#0d1b22"/>
+  <circle cx="40" cy="29" r="2.2" fill="#0d1b22"/>
+  <!-- mouth grille -->
+  <rect x="22" y="38" width="20" height="4.5" rx="2.2" fill="#ffdd78"/>
+  <!-- side ears -->
+  <rect x="9" y="25" width="4" height="11" rx="2" fill="#187b70"/>
+  <rect x="51" y="25" width="4" height="11" rx="2" fill="#187b70"/>
+  <!-- neck/base -->
+  <rect x="26" y="46" width="12" height="6" rx="2.5" fill="#2a3a47"/>
+</svg>
