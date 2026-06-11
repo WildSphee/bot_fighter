@@ -123,8 +123,9 @@ export async function publishInstagramReel(
   const config = readInstagramConfig(env);
   const fetcher = options.fetcher ?? fetch;
   const graphVersion = options.graphVersion ?? env.INSTAGRAM_GRAPH_VERSION ?? "v24.0";
+  const graphHost = env.INSTAGRAM_GRAPH_HOST?.trim() || "graph.instagram.com";
   const encodedAccountId = encodeURIComponent(config.accountId);
-  const graphBase = `https://graph.facebook.com/${graphVersion}`;
+  const graphBase = `https://${graphHost}/${graphVersion}`;
   const containerParams = new URLSearchParams({
     media_type: "REELS",
     upload_type: "resumable",

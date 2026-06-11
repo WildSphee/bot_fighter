@@ -90,6 +90,7 @@ describe("instagram publishing helpers", () => {
 
     expect(result).toEqual({ mediaId: "media-1", containerId: "container-1", status: "published" });
     expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher.mock.calls[0][0]).toContain("https://graph.instagram.com/");
     expect(fetcher.mock.calls[0][0]).toContain("/1789/media");
     expect(fetcher.mock.calls[1][0]).toBe("https://upload.example/reel");
     expect(fetcher.mock.calls[4][0]).toContain("/1789/media_publish");
