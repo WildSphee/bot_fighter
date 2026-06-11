@@ -73,7 +73,7 @@ export async function generateReelCaption(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: options.model ?? env.OPENAI_MODEL ?? "gpt-5.5",
+      model: options.model ?? readOpenAIModel(env),
       input: buildCaptionPrompt(summary),
       max_output_tokens: 220,
     }),
@@ -93,28 +93,15 @@ export async function generateReelCaption(
 }
 
 export function buildCaptionPrompt(summary: ReelCaptionSummary): string {
-  const damage = summary.damage
-    .map((entry) => `${entry.name}: ${Math.round(entry.dealt)} damage`)
-    .join("; ");
-  const highlights = summary.highlights.length
-    ? summary.highlights.map((event) => `${event.time.toFixed(1)}s ${event.text}`).join("; ")
-    : "No major hits logged.";
-  const underdog =
-    typeof summary.underdogScore === "number"
-      ? `Underdog comeback score: ${Math.round(summary.underdogScore)}.`
-      : "No underdog score available.";
-
   return [
-    "Write one punchy Instagram Reel caption for a simulated robot arena fight.",
-    "Keep it under 500 characters, energetic, and suitable for a public brand account.",
-    "Include 3 to 6 relevant hashtags. Do not invent real people, sponsors, or prizes.",
-    `Seed: ${summary.seed}.`,
-    `Winner: ${summary.winnerName}.`,
-    `Duration: ${summary.duration.toFixed(1)} seconds.`,
-    `Bots: ${summary.botNames.join(" vs ")}.`,
-    underdog,
-    `Damage: ${damage || "none"}.`,
-    `Highlights: ${highlights}.`,
+    "You are writing an instagram caption, follow the style below:",
+    "",
+    "Caption style example:",
+    `${summary.botNames.join(" vs ")} - Who will win?",`,
+    
+    "<insert random fun fact that's nothing to do with the match here, a random animal / anthropology / history / asia / gaming fun fact, format: no em dashes, add line breaks>",
+    "<ie. In imperial China, crickets were not just insects — they were pets, musical companions, and tiny competitive athletes. The tradition goes back roughly 2,000 years in broader “singing insect” culture, while keeping crickets in cages became especially popular during the Tang dynasty, 618-907 AD. Court women reportedly kept them in small golden cages so they could listen to their chirping at night. By the Song dynasty, 960–1279 AD, cricket fighting had become a serious pastime, with male crickets matched almost like boxers by size and strength>",
+    "And always end on these hashtags: #BotLab #BotLabAction #BotSimultions",
   ].join("\n");
 }
 
@@ -228,6 +215,10 @@ function readInstagramConfig(env: Env) {
     accountId: env.INSTAGRAM_ACCOUNT_ID ?? "",
     token: env.INSTAGRAM_ACCOUNT_TOKEN ?? "",
   };
+}
+
+function readOpenAIModel(env: Env) {
+  return env.OPENAI_MODEL?.trim() || "gpt-5.5";
 }
 
 async function waitForContainerReady(

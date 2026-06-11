@@ -36,13 +36,24 @@ describe("instagram publishing helpers", () => {
     });
   });
 
-  it("builds a caption prompt from fight summary details", () => {
+  it("builds a caption prompt from the editable caption style", () => {
     const prompt = buildCaptionPrompt(summary);
 
-    expect(prompt).toContain("Winner: Striker");
-    expect(prompt).toContain("Bots: Striker vs Bulwark");
-    expect(prompt).toContain("Underdog comeback score: 35");
-    expect(prompt).toContain("9.8s Striker hit Bulwark with Rocket for 42");
+    expect(prompt).toContain("You are writing an instagram caption");
+    expect(prompt).toContain("Striker vs Bulwark - Who will win?");
+    expect(prompt).toContain("random fun fact");
+  });
+
+  it("defaults caption generation to gpt-5.5 when no model is configured", async () => {
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse({ output_text: "Caption #botfight" }));
+
+    await generateReelCaption(summary, {
+      env: { OPENAI_API_KEY: "key", OPENAI_MODEL: "" },
+      fetcher,
+    });
+
+    const request = JSON.parse(String(fetcher.mock.calls[0][1]?.body)) as { model: string };
+    expect(request.model).toBe("gpt-5.5");
   });
 
   it("normalizes remote API errors", () => {
