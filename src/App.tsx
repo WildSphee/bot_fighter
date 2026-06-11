@@ -1,4 +1,5 @@
 import {
+  CalendarDays,
   Crosshair,
   Dices,
   Download,
@@ -54,12 +55,44 @@ type HistoryItem = {
   createdAt: string;
 };
 
+type ScheduledReelStatus =
+  | "queued"
+  | "rendering"
+  | "posting"
+  | "published"
+  | "failed"
+  | "cancelled";
+
+type ScheduledReelJob = {
+  id: string;
+  status: ScheduledReelStatus;
+  scheduledAt: string;
+  timezoneLabel: "UTC+08:00";
+  caption: string;
+  fightConfig: FightConfig;
+  soundEnabled: boolean;
+  attempts: number;
+  nextAttemptAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+  mediaId?: string;
+  containerId?: string;
+  publishedAt?: string;
+};
+
+type ScheduleSnapshot = {
+  jobs: ScheduledReelJob[];
+  nextJob?: ScheduledReelJob;
+};
+
 const HISTORY_KEY = "bot-fighter-history";
 const CLASS_PROFILE_KEY = "bot-fighter-class-profiles";
 const MOVEMENT_PROFILE_KEY = "bot-fighter-movement-profiles";
 const WEAPON_PROFILE_KEY = "bot-fighter-weapon-profiles";
 const SETTINGS_KEY = "bot-fighter-settings";
 const API_BASE_URL = resolveApiBaseUrl();
+const SINGAPORE_TIME_ZONE = "Asia/Singapore";
 
 function resolveApiBaseUrl(): string {
   const configured = import.meta.env.VITE_API_BASE_URL as string | undefined;
@@ -180,6 +213,13 @@ export default function App() {
   const [postedMediaId, setPostedMediaId] = useState("");
   const [isCaptionLoading, setIsCaptionLoading] = useState(false);
   const [isPostingReel, setIsPostingReel] = useState(false);
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [scheduleSnapshot, setScheduleSnapshot] = useState<ScheduleSnapshot>({ jobs: [] });
+  const [scheduleError, setScheduleError] = useState("");
+  const [scheduleStatus, setScheduleStatus] = useState("Ready");
+  const [scheduleDatetime, setScheduleDatetime] = useState(() => defaultSingaporeDatetimeLocal());
+  const [isScheduleLoading, setIsScheduleLoading] = useState(false);
+  const [isSchedulingReel, setIsSchedulingReel] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const lastSoundTimeRef = useRef(-0.01);
@@ -371,6 +411,12 @@ export default function App() {
       });
   }, []);
 
+  useEffect(() => {
+    if (scheduleModalOpen) {
+      void loadSchedule();
+    }
+  }, [scheduleModalOpen]);
+
   function updateRobot(robotId: string, updater: (robot: RobotConfig) => RobotConfig) {
     setRobots((current) => current.map((robot) => (robot.id === robotId ? updater(robot) : robot)));
   }
@@ -558,7 +604,15 @@ export default function App() {
     setPostCaption("");
     setPostError("");
     setPostedMediaId("");
+    setScheduleDatetime(defaultSingaporeDatetimeLocal());
     void generateCaption();
+  }
+
+  function openScheduler() {
+    setScheduleModalOpen(true);
+    setScheduleError("");
+    setScheduleStatus("Loading schedule");
+    void loadSchedule();
   }
 
   async function generateCaption() {
@@ -641,6 +695,119 @@ export default function App() {
     }
   }
 
+  async function loadSchedule() {
+    setIsScheduleLoading(true);
+    setScheduleError("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/instagram/schedule`);
+      const payload = (await response.json().catch(() => ({}))) as ScheduleSnapshot & {
+        error?: string;
+      };
+
+      if (!response.ok || !Array.isArray(payload.jobs)) {
+        throw new Error(payload.error ?? "Schedule load failed");
+      }
+
+      setScheduleSnapshot({ jobs: payload.jobs, nextJob: payload.nextJob });
+      setScheduleStatus(payload.nextJob ? "Schedule ready" : "No queued reels");
+    } catch (error) {
+      setScheduleError(error instanceof Error ? error.message : "Schedule load failed");
+      setScheduleStatus("Schedule failed");
+    } finally {
+      setIsScheduleLoading(false);
+    }
+  }
+
+  async function scheduleReel() {
+    if (isSchedulingReel || isCaptionLoading || !postCaption.trim()) {
+      return;
+    }
+
+    setIsSchedulingReel(true);
+    setPostError("");
+    setPostedMediaId("");
+    setPostStatus("Scheduling reel");
+
+    try {
+      const scheduledAt = singaporeDatetimeLocalToIso(scheduleDatetime);
+      const response = await fetch(`${API_BASE_URL}/api/instagram/schedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caption: postCaption.trim(),
+          scheduledAt,
+          fightConfig: result.config,
+          soundEnabled,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        job?: ScheduledReelJob;
+        error?: string;
+      };
+
+      if (!response.ok || !payload.job) {
+        throw new Error(payload.error ?? "Schedule failed");
+      }
+
+      setPostStatus(`Scheduled ${formatSingaporeTime(payload.job.scheduledAt)}`);
+      setScheduleModalOpen(true);
+      await loadSchedule();
+    } catch (error) {
+      setPostError(error instanceof Error ? error.message : "Schedule failed");
+      setPostStatus("Schedule failed");
+    } finally {
+      setIsSchedulingReel(false);
+    }
+  }
+
+  async function updateScheduledJob(jobId: string, form: HTMLFormElement) {
+    const formData = new FormData(form);
+    const caption = String(formData.get("caption") ?? "");
+    const scheduledAtLocal = String(formData.get("scheduledAt") ?? "");
+    setScheduleStatus("Updating reel");
+    setScheduleError("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/instagram/schedule/${encodeURIComponent(jobId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caption,
+          scheduledAt: singaporeDatetimeLocalToIso(scheduledAtLocal),
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Schedule update failed");
+      }
+      await loadSchedule();
+    } catch (error) {
+      setScheduleError(error instanceof Error ? error.message : "Schedule update failed");
+      setScheduleStatus("Update failed");
+    }
+  }
+
+  async function scheduleAction(jobId: string, action: "cancel" | "retry") {
+    setScheduleStatus(action === "cancel" ? "Cancelling reel" : "Retrying reel");
+    setScheduleError("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/instagram/schedule/${encodeURIComponent(jobId)}/${action}`,
+        { method: "POST" }
+      );
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Schedule action failed");
+      }
+      await loadSchedule();
+    } catch (error) {
+      setScheduleError(error instanceof Error ? error.message : "Schedule action failed");
+      setScheduleStatus("Action failed");
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -654,6 +821,9 @@ export default function App() {
           </button>
           <button className="icon-button" title="Reroll until underdog score is 30+" onClick={rerollUnderdogSeed}>
             <Dices size={19} />
+          </button>
+          <button className="icon-button" title="Open posting schedule" onClick={openScheduler}>
+            <CalendarDays size={19} />
           </button>
           <button
             className="icon-button"
@@ -1239,6 +1409,21 @@ export default function App() {
               <span>{postCaption.length}/2200</span>
               <strong>{postStatus}</strong>
             </div>
+            <section className="schedule-box" aria-label="Schedule reel">
+              <div>
+                <span>Schedule</span>
+                <strong>Singapore time UTC+08:00</strong>
+              </div>
+              <label className="field">
+                <span>Post At</span>
+                <input
+                  type="datetime-local"
+                  value={scheduleDatetime}
+                  onChange={(event) => setScheduleDatetime(event.target.value)}
+                  disabled={isSchedulingReel || isPostingReel}
+                />
+              </label>
+            </section>
             {postError && <p className="post-modal__error">{postError}</p>}
             {postedMediaId && <p className="post-modal__success">Published media ID: {postedMediaId}</p>}
             <div className="post-modal__actions">
@@ -1259,12 +1444,132 @@ export default function App() {
               </button>
               <button
                 className="primary-button"
+                onClick={() => void scheduleReel()}
+                disabled={isCaptionLoading || isSchedulingReel || !postCaption.trim()}
+              >
+                <CalendarDays size={17} />
+                {isSchedulingReel ? "Scheduling" : "Schedule Reel"}
+              </button>
+              <button
+                className="primary-button"
                 onClick={() => void postReel()}
                 disabled={isCaptionLoading || isPostingReel || !postCaption.trim()}
               >
                 <Send size={17} />
                 {isPostingReel ? "Posting" : "Confirm Post"}
               </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {scheduleModalOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="post-modal schedule-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-title">
+            <div className="post-modal__header">
+              <div>
+                <span>Instagram Scheduler</span>
+                <h2 id="schedule-title">Posting Queue</h2>
+              </div>
+              <button
+                className="icon-button"
+                title="Close"
+                onClick={() => setScheduleModalOpen(false)}
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <section className="next-job">
+              <span>Next Video</span>
+              {scheduleSnapshot.nextJob ? (
+                <>
+                  <strong>{formatSingaporeTime(scheduleSnapshot.nextJob.scheduledAt)}</strong>
+                  <p>{scheduleSnapshot.nextJob.caption}</p>
+                  <small>
+                    {scheduleSnapshot.nextJob.fightConfig.seed} · {scheduleSnapshot.nextJob.status}
+                  </small>
+                </>
+              ) : (
+                <p className="muted">No queued reels.</p>
+              )}
+            </section>
+
+            <div className="post-modal__meta">
+              <span>{scheduleSnapshot.jobs.length} jobs</span>
+              <strong>{isScheduleLoading ? "Loading" : scheduleStatus}</strong>
+            </div>
+            {scheduleError && <p className="post-modal__error">{scheduleError}</p>}
+
+            <div className="schedule-list">
+              {scheduleSnapshot.jobs.length === 0 && <p className="muted">No scheduled posts yet.</p>}
+              {scheduleSnapshot.jobs.map((job) => {
+                const editable = job.status === "queued" || job.status === "failed";
+                return (
+                  <form
+                    className="schedule-row"
+                    key={job.id}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void updateScheduledJob(job.id, event.currentTarget);
+                    }}
+                  >
+                    <div className="schedule-row__head">
+                      <strong>{formatSingaporeTime(job.scheduledAt)}</strong>
+                      <span className={`schedule-status schedule-status--${job.status}`}>{job.status}</span>
+                    </div>
+                    <label className="field">
+                      <span>Caption</span>
+                      <textarea
+                        name="caption"
+                        defaultValue={job.caption}
+                        maxLength={2200}
+                        disabled={!editable}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Post At UTC+08:00</span>
+                      <input
+                        name="scheduledAt"
+                        type="datetime-local"
+                        defaultValue={isoToSingaporeDatetimeLocal(job.scheduledAt)}
+                        disabled={!editable}
+                      />
+                    </label>
+                    <div className="schedule-row__meta">
+                      <span>{job.fightConfig.seed}</span>
+                      <span>{job.attempts} attempts</span>
+                      {job.mediaId && <span>Media {job.mediaId}</span>}
+                    </div>
+                    {job.lastError && <p className="post-modal__error">{job.lastError}</p>}
+                    <div className="post-modal__actions">
+                      {editable && (
+                        <button className="secondary-button" type="submit">
+                          Save
+                        </button>
+                      )}
+                      {job.status !== "published" && job.status !== "cancelled" && (
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => void scheduleAction(job.id, "cancel")}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                      {job.status === "failed" && (
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={() => void scheduleAction(job.id, "retry")}
+                        >
+                          <RefreshCw size={17} />
+                          Retry
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                );
+              })}
             </div>
           </section>
         </div>
@@ -1625,6 +1930,49 @@ function hpPercentFor(hp: number, maxHp: number): number {
 function formatScore(score: number): string {
   const rounded = Math.round(score);
   return `${rounded > 0 ? "+" : ""}${rounded}`;
+}
+
+function defaultSingaporeDatetimeLocal(): string {
+  const date = new Date(Date.now() + 60 * 60 * 1000);
+  return isoToSingaporeDatetimeLocal(date.toISOString());
+}
+
+function singaporeDatetimeLocalToIso(value: string): string {
+  if (!value) {
+    throw new Error("Choose a schedule time");
+  }
+  const normalized = value.length === 16 ? `${value}:00` : value;
+  return new Date(`${normalized}+08:00`).toISOString();
+}
+
+function isoToSingaporeDatetimeLocal(value: string): string {
+  const date = new Date(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: SINGAPORE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .formatToParts(date)
+    .reduce<Record<string, string>>((bucket, part) => {
+      if (part.type !== "literal") {
+        bucket[part.type] = part.value;
+      }
+      return bucket;
+    }, {});
+
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
+
+function formatSingaporeTime(value: string): string {
+  return new Intl.DateTimeFormat("en-SG", {
+    timeZone: SINGAPORE_TIME_ZONE,
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function colorWithAlpha(color: string, alpha: number): string {

@@ -7,6 +7,7 @@ import {
   publishInstagramReel,
   type ReelCaptionSummary,
 } from "./instagram";
+import { InstagramScheduleService, startInstagramSchedulePoller } from "./instagramSchedule";
 import {
   mergeSettings,
   readProfileStore,
@@ -37,6 +38,8 @@ let classProfiles = cloneClassProfiles(storedProfiles.classes);
 let movementProfiles = cloneMovementProfiles(storedProfiles.movementProfiles);
 let weaponProfiles = cloneWeapons(storedProfiles.weapons);
 let settings: GameSettings = { ...storedProfiles.settings };
+const scheduleService = new InstagramScheduleService();
+startInstagramSchedulePoller(scheduleService);
 
 const server = createServer(async (request, response) => {
   setCorsHeaders(response);
@@ -150,6 +153,51 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/instagram/schedule") {
+      sendJson(response, 200, scheduleService.list());
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/instagram/schedule") {
+      const body = await readJson<{
+        caption?: string;
+        scheduledAt?: string;
+        fightConfig?: FightConfig;
+        soundEnabled?: boolean;
+      }>(request);
+      if (!body.fightConfig) {
+        throw new ApiRequestError("fightConfig is required.", 400);
+      }
+      const job = scheduleService.create({
+        caption: body.caption ?? "",
+        scheduledAt: body.scheduledAt ?? "",
+        fightConfig: body.fightConfig,
+        soundEnabled: body.soundEnabled,
+      });
+      sendJson(response, 201, { job });
+      return;
+    }
+
+    const scheduleRoute = matchScheduleJobRoute(url.pathname);
+    if (scheduleRoute && request.method === "PATCH" && scheduleRoute.action === undefined) {
+      const body = await readJson<{ caption?: string; scheduledAt?: string }>(request);
+      const job = scheduleService.update(scheduleRoute.id, body);
+      sendJson(response, 200, { job });
+      return;
+    }
+
+    if (scheduleRoute && request.method === "POST" && scheduleRoute.action === "cancel") {
+      const job = scheduleService.cancel(scheduleRoute.id);
+      sendJson(response, 200, { job });
+      return;
+    }
+
+    if (scheduleRoute && request.method === "POST" && scheduleRoute.action === "retry") {
+      const job = scheduleService.retry(scheduleRoute.id);
+      sendJson(response, 200, { job });
+      return;
+    }
+
     sendJson(response, 404, {
       error: "Not found",
       routes: [
@@ -161,6 +209,11 @@ const server = createServer(async (request, response) => {
         "POST /api/simulate",
         "POST /api/reel-caption",
         "POST /api/instagram/reel",
+        "GET /api/instagram/schedule",
+        "POST /api/instagram/schedule",
+        "PATCH /api/instagram/schedule/:id",
+        "POST /api/instagram/schedule/:id/cancel",
+        "POST /api/instagram/schedule/:id/retry",
       ],
     });
   } catch (error) {
@@ -178,8 +231,20 @@ server.listen(PORT, HOST, () => {
 
 function setCorsHeaders(response: ServerResponse) {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
+  response.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,OPTIONS");
   response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
+function matchScheduleJobRoute(pathname: string): { id: string; action?: "cancel" | "retry" } | undefined {
+  const match = pathname.match(/^\/api\/instagram\/schedule\/([^/]+)(?:\/(cancel|retry))?$/);
+  if (!match) {
+    return undefined;
+  }
+
+  return {
+    id: decodeURIComponent(match[1]),
+    action: match[2] as "cancel" | "retry" | undefined,
+  };
 }
 
 function sendJson(response: ServerResponse, status: number, payload: unknown) {
