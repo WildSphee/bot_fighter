@@ -317,7 +317,7 @@ export function createDefaultFightConfig(seed = "bot-fighter-001"): FightConfig 
     mode: "duel",
     maxDuration: 80,
     tickRate: 60,
-    previewFps: 30,
+    previewFps: 60,
     moveInterval: 1,
     weaponInterval: 2,
     centerGravity: 0.35,

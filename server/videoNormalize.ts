@@ -53,7 +53,11 @@ export function buildFfmpegArgs(inputPath: string, outputPath: string) {
     "-i",
     inputPath,
     "-vf",
-    "fps=30,scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p",
+    // The browser hands us full-range RGB (from the canvas/VP9 capture). swscale's
+    // default RGB->YUV matrix is bt601, but we tag the file bt709 below; that
+    // mismatch is what tints the reel yellow/green on a phone. Pin the conversion
+    // matrix and range explicitly so the pixels match the metadata.
+    "fps=60,scale=1080:1920:force_original_aspect_ratio=decrease:out_color_matrix=bt709:out_range=tv,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p",
     "-c:v",
     "libx264",
     "-profile:v",
@@ -82,6 +86,8 @@ export function buildFfmpegArgs(inputPath: string, outputPath: string) {
     "bt709",
     "-colorspace",
     "bt709",
+    "-color_range",
+    "tv",
     "-c:a",
     "aac",
     "-b:a",

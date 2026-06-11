@@ -22,6 +22,12 @@ const ROBOT_RADIUS = 38;
 // How long the movement slot / weapon list visibly spins after each pick before
 // locking onto the result. Matches the half-second display window in the brief.
 const SLOT_SPIN_SECONDS = 0.5;
+// Instagram overlays its own chrome on the full-screen 9:16 reel: a progress
+// bar and icons across the top, and the caption, audio tag, and like/share rail
+// across the bottom. Inset the HUD by these "safe-area" margins so the names,
+// HP bars, and action log never end up hidden underneath that overlay.
+const SAFE_TOP_INSET = 104;
+const SAFE_BOTTOM_INSET = 232;
 
 type Layout = {
   width: number;
@@ -69,13 +75,14 @@ function createLayout(context: CanvasRenderingContext2D, robotCount: number): La
   const width = context.canvas.width;
   const height = context.canvas.height;
   const actionBarHeight = actionBarHeightForRobotCount(robotCount);
-  const actionBarY = height - actionBarHeight;
-  const arenaY = TOP_BAR_HEIGHT + FIELD_GAP_TOP;
+  const topBarY = SAFE_TOP_INSET;
+  const actionBarY = height - SAFE_BOTTOM_INSET - actionBarHeight;
+  const arenaY = topBarY + TOP_BAR_HEIGHT + FIELD_GAP_TOP;
 
   return {
     width,
     height,
-    topBar: { x: 0, y: 0, width, height: TOP_BAR_HEIGHT },
+    topBar: { x: 0, y: topBarY, width, height: TOP_BAR_HEIGHT },
     arena: {
       x: FIELD_PADDING_X,
       y: arenaY,
@@ -104,7 +111,7 @@ function drawBackground(context: CanvasRenderingContext2D, layout: Layout, time:
   context.save();
   context.globalAlpha = 0.28;
   context.fillStyle = "#ffdd78";
-  context.fillRect(0, layout.topBar.height - 4, layout.width, 4);
+  context.fillRect(0, layout.topBar.y + layout.topBar.height - 4, layout.width, 4);
   context.fillStyle = "#2fffc8";
   context.fillRect(0, layout.actionBar.y, layout.width, 4);
   context.restore();
@@ -160,7 +167,7 @@ function drawTopBar(
   context.fillStyle = "#fff7e6";
   context.font = "900 36px Inter, system-ui, sans-serif";
   context.textAlign = "center";
-  context.fillText("WHO WILL WIN?", layout.width / 2, 44);
+  context.fillText("WHO WILL WIN?", layout.width / 2, layout.topBar.y + 44);
 
   const slots = topSlots(frame.robots, layout);
   frame.robots.slice(0, 4).forEach((robot, index) => {
@@ -173,14 +180,14 @@ function drawTopBar(
 function topSlots(robots: RobotFrame[], layout: Layout): Rect[] {
   if (robots.length <= 2) {
     return [
-      { x: 28, y: 22, width: 300, height: 118 },
-      { x: layout.width - 328, y: 22, width: 300, height: 118 },
+      { x: 28, y: layout.topBar.y + 22, width: 300, height: 118 },
+      { x: layout.width - 328, y: layout.topBar.y + 22, width: 300, height: 118 },
     ];
   }
 
   return robots.slice(0, 4).map((_, index) => ({
     x: index % 2 === 0 ? 24 : layout.width - 294,
-    y: index < 2 ? 18 : 88,
+    y: layout.topBar.y + (index < 2 ? 18 : 88),
     width: 270,
     height: 64,
   }));
@@ -375,9 +382,9 @@ function drawRailgunOverlay(
   // edges without painting over the HUD bars.
   clipRect(context, {
     x: 0,
-    y: layout.topBar.height,
+    y: layout.topBar.y + layout.topBar.height,
     width: layout.width,
-    height: layout.actionBar.y - layout.topBar.height,
+    height: layout.actionBar.y - (layout.topBar.y + layout.topBar.height),
   });
 
   for (const effect of railgunEffects) {

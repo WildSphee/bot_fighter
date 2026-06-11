@@ -13,8 +13,10 @@ describe("reel video normalization", () => {
     expect(args).toContain("aac");
     expect(args).toContain("128k");
     expect(args).toContain("48000");
-    expect(joined).toContain("fps=30");
+    expect(joined).toContain("fps=60");
     expect(joined).toContain("scale=1080:1920:force_original_aspect_ratio=decrease");
+    expect(joined).toContain("out_color_matrix=bt709");
+    expect(joined).toContain("out_range=tv");
     expect(joined).toContain("pad=1080:1920");
     expect(joined).toContain("format=yuv420p");
     expect(joined).toContain("-g 60");
@@ -23,6 +25,7 @@ describe("reel video normalization", () => {
     expect(joined).toContain("-color_primaries bt709");
     expect(joined).toContain("-color_trc bt709");
     expect(joined).toContain("-colorspace bt709");
+    expect(joined).toContain("-color_range tv");
   });
 
   it("returns normalized mp4 bytes from the ffmpeg output path", async () => {
