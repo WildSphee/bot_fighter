@@ -122,6 +122,10 @@ const WEAPON_COLORS: Record<string, string> = {
   emp: "#a9fffd",
   railgun: "#36e0ff",
   rocket: "#ff6a3d",
+  "flash-bloom": "#b6f36b",
+  "thorn-minions": "#2fbf71",
+  "gold-flask": "#d9a441",
+  "transmutation-circle": "#ffe08a",
 };
 
 const MOVEMENT_LABELS: Record<MovementId, string> = {

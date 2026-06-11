@@ -203,7 +203,7 @@ function drawTopRobotStatus(
   events: FightEvent[]
 ) {
   const hpRatio = Math.max(0, robot.hp / robot.maxHp);
-  const shieldRatio = Math.max(0, robot.shield / robot.maxShield);
+  const shieldRatio = robot.maxShield > 0 ? Math.max(0, robot.shield / robot.maxShield) : 0;
   const textX = alignRight ? rect.x + rect.width : rect.x;
   const shake = healthShakeFor(robot.id, time, events);
   const shakeX = shake * Math.sin(time * 92 + robot.id.length) * 5;
@@ -300,8 +300,12 @@ function drawEffects(
     const position = mapPoint(worldPosition, arena, layout.arena);
     const alpha = Math.max(0, 1 - effect.age / effect.duration);
 
-    if (effect.type === "telegraph" && effect.endPosition) {
-      drawRailgunTelegraph(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena));
+    if (effect.type === "telegraph") {
+      if (effect.endPosition) {
+        drawRailgunTelegraph(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena));
+      } else {
+        drawGroundTelegraph(context, effect, position, layout.arena.width / arena.width, alpha);
+      }
       continue;
     }
 
@@ -657,6 +661,51 @@ function drawRailgunTelegraph(
   context.restore();
 }
 
+function drawGroundTelegraph(
+  context: CanvasRenderingContext2D,
+  effect: EffectFrame,
+  position: Vec2,
+  scale: number,
+  alpha: number
+) {
+  const radius = effect.radius * scale;
+  const progress = Math.min(1, effect.age / Math.max(0.001, effect.duration));
+  const locked = effect.variant === 1;
+  const sweep = Math.PI * 2 * progress;
+
+  context.save();
+  context.translate(position.x, position.y);
+  context.globalAlpha = locked ? 0.5 + alpha * 0.22 : 0.22 + progress * 0.26;
+  context.fillStyle = colorWithAlpha(effect.color, locked ? 0.24 : 0.14);
+  context.strokeStyle = effect.color;
+  context.shadowBlur = locked ? 26 : 14;
+  context.shadowColor = effect.color;
+  context.lineWidth = locked ? 5 : 3;
+  context.beginPath();
+  context.arc(0, 0, radius, 0, Math.PI * 2);
+  context.fill();
+  context.stroke();
+
+  context.shadowBlur = 0;
+  context.strokeStyle = "#ffffff";
+  context.globalAlpha = locked ? 0.72 : 0.42;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.arc(0, 0, radius * 0.72, -Math.PI / 2, -Math.PI / 2 + sweep);
+  context.stroke();
+
+  context.strokeStyle = effect.color;
+  context.lineWidth = 4;
+  for (let index = 0; index < 8; index += 1) {
+    const angle = (Math.PI * 2 * index) / 8 + effect.age * 0.8;
+    context.beginPath();
+    context.moveTo(Math.cos(angle) * radius * 0.78, Math.sin(angle) * radius * 0.78);
+    context.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+    context.stroke();
+  }
+  context.restore();
+}
+
 function drawConeEffect(
   context: CanvasRenderingContext2D,
   effect: { color: string; radius: number },
@@ -764,6 +813,36 @@ function drawProjectiles(
       context.strokeStyle = "#ffffff";
       context.lineWidth = 2;
       context.stroke();
+    } else if (projectile.weaponId === "thorn-minions") {
+      context.rotate(projectile.age * 8);
+      context.shadowBlur = 18;
+      context.shadowColor = palette.glow;
+      context.fillStyle = palette.body;
+      context.beginPath();
+      context.arc(0, 0, radius * 0.9, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+      context.strokeStyle = palette.glow;
+      context.lineWidth = 3;
+      for (let index = 0; index < 5; index += 1) {
+        const thorn = (Math.PI * 2 * index) / 5;
+        context.beginPath();
+        context.moveTo(Math.cos(thorn) * radius * 0.75, Math.sin(thorn) * radius * 0.75);
+        context.lineTo(Math.cos(thorn) * radius * 1.55, Math.sin(thorn) * radius * 1.55);
+        context.stroke();
+      }
+    } else if (projectile.weaponId === "gold-flask") {
+      context.shadowBlur = 18;
+      context.shadowColor = palette.glow;
+      context.fillStyle = palette.body;
+      context.beginPath();
+      context.roundRect(-radius * 0.7, -radius * 1.1, radius * 1.4, radius * 2.2, radius * 0.45);
+      context.fill();
+      context.stroke();
+      context.fillStyle = palette.glow;
+      context.beginPath();
+      context.arc(0, radius * 0.32, radius * 0.58, 0, Math.PI * 2);
+      context.fill();
     } else {
       context.shadowBlur = isRocketLike ? 18 : 10;
       context.shadowColor = palette.glow;
@@ -866,6 +945,58 @@ function drawRobotBody(context: CanvasRenderingContext2D, robot: RobotFrame) {
     context.fillStyle = "#f9fbff";
     context.fillRect(-18, -15, 11, 10);
     context.fillRect(-18, 5, 11, 10);
+    return;
+  }
+
+  if (robot.classId === "druid") {
+    context.beginPath();
+    context.moveTo(38, 0);
+    context.bezierCurveTo(18, -39, -26, -41, -38, -4);
+    context.bezierCurveTo(-27, 36, 16, 42, 38, 0);
+    context.fill();
+    context.stroke();
+    context.shadowBlur = 0;
+    context.fillStyle = robot.palette.trim;
+    context.beginPath();
+    context.arc(-6, 0, 17, 0, Math.PI * 2);
+    context.fill();
+    context.strokeStyle = robot.palette.glow;
+    context.lineWidth = 5;
+    context.beginPath();
+    context.arc(22, 0, 18, -0.8, 0.8);
+    context.stroke();
+    context.fillStyle = "#f9fbff";
+    context.fillRect(-22, -14, 10, 9);
+    context.fillRect(-22, 5, 10, 9);
+    return;
+  }
+
+  if (robot.classId === "alchemist") {
+    context.beginPath();
+    context.moveTo(42, 0);
+    context.lineTo(18, -36);
+    context.lineTo(-28, -36);
+    context.lineTo(-42, 0);
+    context.lineTo(-28, 36);
+    context.lineTo(18, 36);
+    context.closePath();
+    context.fill();
+    context.stroke();
+    context.shadowBlur = 0;
+    context.fillStyle = robot.palette.trim;
+    context.beginPath();
+    context.arc(-4, 0, 20, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = robot.palette.glow;
+    context.fillRect(22, -16, 22, 32);
+    context.strokeStyle = "#ffffff";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.arc(-4, 0, 12, 0, Math.PI * 2);
+    context.stroke();
+    context.fillStyle = "#f9fbff";
+    context.fillRect(-25, -15, 11, 10);
+    context.fillRect(-25, 5, 11, 10);
     return;
   }
 
@@ -1243,6 +1374,14 @@ function fallbackWeaponColor(weaponId: WeaponId): string {
       return "#36e0ff";
     case "rocket":
       return "#ff6a3d";
+    case "flash-bloom":
+      return "#b6f36b";
+    case "thorn-minions":
+      return "#2fbf71";
+    case "gold-flask":
+      return "#d9a441";
+    case "transmutation-circle":
+      return "#ffe08a";
     case "shotgun":
       return "#ffd166";
     case "shield":
@@ -1427,6 +1566,68 @@ function drawWeaponIcon(
       context.lineTo(-28, 10);
       context.lineTo(-16, 6);
       context.closePath();
+      context.fill();
+      break;
+    case "flash-bloom":
+      context.lineWidth = 4;
+      context.strokeStyle = accent;
+      for (let index = 0; index < 8; index += 1) {
+        const angle = (Math.PI * 2 * index) / 8;
+        context.beginPath();
+        context.moveTo(Math.cos(angle) * 7, Math.sin(angle) * 7);
+        context.lineTo(Math.cos(angle) * 24, Math.sin(angle) * 24);
+        context.stroke();
+      }
+      context.fillStyle = "#ffffff";
+      context.beginPath();
+      context.arc(0, 0, 9, 0, Math.PI * 2);
+      context.fill();
+      break;
+    case "thorn-minions":
+      context.lineWidth = 4;
+      context.fillStyle = color;
+      context.beginPath();
+      context.arc(0, 0, 14, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+      context.strokeStyle = accent;
+      for (let index = 0; index < 5; index += 1) {
+        const angle = (Math.PI * 2 * index) / 5;
+        context.beginPath();
+        context.moveTo(Math.cos(angle) * 10, Math.sin(angle) * 10);
+        context.lineTo(Math.cos(angle) * 24, Math.sin(angle) * 24);
+        context.stroke();
+      }
+      break;
+    case "gold-flask":
+      context.lineWidth = 4;
+      context.fillStyle = color;
+      context.beginPath();
+      context.roundRect(-11, -22, 22, 40, 8);
+      context.fill();
+      context.stroke();
+      context.fillStyle = accent;
+      context.beginPath();
+      context.arc(0, 7, 9, 0, Math.PI * 2);
+      context.fill();
+      context.fillStyle = trim;
+      context.fillRect(-7, -25, 14, 8);
+      break;
+    case "transmutation-circle":
+      context.lineWidth = 4;
+      context.strokeStyle = accent;
+      context.beginPath();
+      context.arc(0, 0, 22, 0, Math.PI * 2);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(0, -22);
+      context.lineTo(19, 11);
+      context.lineTo(-19, 11);
+      context.closePath();
+      context.stroke();
+      context.fillStyle = color;
+      context.beginPath();
+      context.arc(0, 0, 5, 0, Math.PI * 2);
       context.fill();
       break;
   }

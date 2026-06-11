@@ -87,6 +87,10 @@ describe("simulateFight", () => {
       emp: ["emp"],
       railgun: ["beam"],
       rocket: ["projectile", "explosion"],
+      "flash-bloom": ["emp", "beam"],
+      "thorn-minions": ["projectile", "spark"],
+      "gold-flask": ["projectile", "explosion"],
+      "transmutation-circle": ["telegraph", "explosion"],
     };
 
     for (const weapon of WEAPONS) {

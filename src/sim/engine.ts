@@ -124,6 +124,9 @@ const CENTER_GRAVITY_ACCEL = 26;
 const RAILGUN_CHARGE_SECONDS = 1;
 const RAILGUN_RESOLVE_SECONDS = 0.3;
 const RAILGUN_PAUSE_BUFFER = 0.5;
+const TRANSMUTATION_LOCK_SECONDS = 0.7;
+const TRANSMUTATION_RESOLVE_SECONDS = 1.25;
+const TRANSMUTATION_PAUSE_BUFFER = 0.45;
 const BLADE_HOLD_SECONDS = 1;
 // Swing twice as fast as before, then leave the blade hanging in its finished
 // pose for a moment before it fades out.
@@ -249,6 +252,8 @@ export function simulateFight(config: FightConfig): FightResult {
             robot.nextWeaponAt =
               weaponId === "railgun"
                 ? time + RAILGUN_CHARGE_SECONDS + RAILGUN_RESOLVE_SECONDS + RAILGUN_PAUSE_BUFFER
+                : weaponId === "transmutation-circle"
+                  ? time + TRANSMUTATION_RESOLVE_SECONDS + TRANSMUTATION_PAUSE_BUFFER
                 : time + weaponInterval;
           }
         }
@@ -615,6 +620,35 @@ function fireWeapon(input: {
     return true;
   }
 
+  if (weapon.id === "flash-bloom") {
+    const flashCenter =
+      targetDistance <= weapon.range
+        ? target.position
+        : clampToArena(add(attacker.position, mul(direction, weapon.range)), input.arena, weapon.radius);
+    effects.push(
+      createEffect("beam", attacker.position, 8, time, attacker.palette.glow, {
+        endPosition: flashCenter,
+        weaponId: weapon.id,
+      })
+    );
+    effects.push(
+      createEffect("emp", flashCenter, weapon.radius, time, attacker.palette.glow, {
+        weaponId: weapon.id,
+      })
+    );
+
+    for (const robot of input.robots) {
+      if (
+        robot.alive &&
+        robot.id !== attacker.id &&
+        distance(robot.position, flashCenter) <= weapon.radius + ROBOT_RADIUS
+      ) {
+        applyDamage(attacker, robot, weapon, time, events, damageByRobot, effects, sub(robot.position, flashCenter));
+      }
+    }
+    return true;
+  }
+
   if (weapon.id === "rocket") {
     projectiles.push({
       id: `rocket-${attacker.id}-${time.toFixed(2)}`,
@@ -637,6 +671,36 @@ function fireWeapon(input: {
     });
     effects.push(
       createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 16)), weapon.radius + 20, time, attacker.palette.glow, {
+        weaponId: weapon.id,
+      })
+    );
+    return true;
+  }
+
+  if (weapon.id === "gold-flask") {
+    const arcSign = rngNext() > 0.5 ? 1 : -1;
+    const side = rotate90(direction, arcSign);
+    projectiles.push({
+      id: `gold-flask-${attacker.id}-${time.toFixed(2)}`,
+      ownerId: attacker.id,
+      targetId: target.id,
+      weaponId: weapon.id,
+      position: add(attacker.position, mul(direction, ROBOT_RADIUS + 8)),
+      velocity: add(mul(direction, weapon.projectileSpeed), mul(side, 170 + rngNext() * 90)),
+      damage: weapon.damage,
+      radius: weapon.radius,
+      homing: weapon.homing,
+      knockback: weapon.knockback,
+      curve: arcSign * 185,
+      lastTrailAt: time,
+      age: 0,
+      expiresAt: time + 2.8,
+      acceleration: 0,
+      explosive: true,
+      explosionRadius: weapon.radius + 88,
+    });
+    effects.push(
+      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 16)), weapon.radius + 18, time, attacker.palette.glow, {
         weaponId: weapon.id,
       })
     );
@@ -683,6 +747,40 @@ function fireWeapon(input: {
     });
     effects.push(
       createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), weapon.radius + 24, time, attacker.palette.glow, {
+        weaponId: weapon.id,
+      })
+    );
+    return true;
+  }
+
+  if (weapon.id === "thorn-minions") {
+    const minionCount = 3;
+    for (let index = 0; index < minionCount; index += 1) {
+      const spread = ((index - 1) * 24 * Math.PI) / 180;
+      const minionDirection = rotateVector(direction, spread);
+      const side = rotate90(minionDirection, index % 2 === 0 ? 1 : -1);
+      projectiles.push({
+        id: `thorn-minion-${attacker.id}-${time.toFixed(2)}-${index}`,
+        ownerId: attacker.id,
+        targetId: target.id,
+        weaponId: weapon.id,
+        position: add(attacker.position, mul(minionDirection, ROBOT_RADIUS + 10)),
+        velocity: add(mul(minionDirection, weapon.projectileSpeed), mul(side, 80 + index * 28)),
+        damage: weapon.damage,
+        radius: weapon.radius,
+        homing: weapon.homing,
+        knockback: weapon.knockback,
+        curve: (index - 1) * 55,
+        lastTrailAt: time,
+        age: 0,
+        expiresAt: time + 3.4,
+        acceleration: 0,
+        explosive: false,
+        explosionRadius: 0,
+      });
+    }
+    effects.push(
+      createEffect("spark", add(attacker.position, mul(direction, ROBOT_RADIUS + 18)), weapon.radius + 28, time, attacker.palette.glow, {
         weaponId: weapon.id,
       })
     );
@@ -784,6 +882,24 @@ function fireWeapon(input: {
         weaponId: weapon.id,
       })
     );
+    return true;
+  }
+
+  if (weapon.id === "transmutation-circle") {
+    const aimPosition =
+      targetDistance <= weapon.range
+        ? target.position
+        : clampToArena(add(attacker.position, mul(direction, weapon.range)), input.arena, weapon.radius);
+    pendingStrikes.push({
+      id: `transmutation-circle-${attacker.id}-${time.toFixed(2)}`,
+      weapon,
+      attackerId: attacker.id,
+      targetId: target.id,
+      aimPosition,
+      createdAt: time,
+      lockedAt: time + TRANSMUTATION_LOCK_SECONDS,
+      resolvesAt: time + TRANSMUTATION_RESOLVE_SECONDS,
+    });
     return true;
   }
 
@@ -995,8 +1111,12 @@ function updateProjectiles(
           knockback: projectile.knockback,
         };
         applyDamage(owner, hitRobot, projectileWeapon, time, events, damageByRobot, effects, projectile.velocity);
+        const impactEffect =
+          projectile.weaponId === "shotgun" || projectile.weaponId === "thorn-minions"
+            ? "spark"
+            : "explosion";
         effects.push(
-          createEffect(projectile.weaponId === "shotgun" ? "spark" : "explosion", projectile.position, projectile.radius + 32, time, owner.palette.glow, {
+          createEffect(impactEffect, projectile.position, projectile.radius + 32, time, owner.palette.glow, {
             weaponId: projectile.weaponId,
           })
         );
@@ -1034,9 +1154,10 @@ function detonateRocket(
   damageByRobot: Record<string, number>,
   time: number
 ) {
+  const weapon = getWeapon(projectile.weaponId);
   effects.push(
     createEffect("explosion", projectile.position, projectile.explosionRadius + 30, time, owner?.palette.glow ?? "#ff8f4f", {
-      weaponId: "rocket",
+      weaponId: projectile.weaponId,
     })
   );
   events.push({ type: "sound", time, sound: "explosion" });
@@ -1046,7 +1167,7 @@ function detonateRocket(
     { x: 0, y: -1 },
     owner?.palette ?? { body: "#ff8f4f", trim: "#ffdd78", glow: "#ffffff" },
     time,
-    "rocket",
+    projectile.weaponId,
     18
   );
 
@@ -1066,7 +1187,7 @@ function detonateRocket(
 
     const falloff = Math.max(0.4, 1 - gap / projectile.explosionRadius);
     const splashWeapon = {
-      ...getWeapon("rocket"),
+      ...weapon,
       damage: projectile.damage * falloff,
       knockback: projectile.knockback * falloff,
     };
@@ -1254,6 +1375,67 @@ function updatePendingStrikes(
     const strike = pendingStrikes[index];
     const attacker = robots.find((robot) => robot.id === strike.attackerId);
     const target = robots.find((robot) => robot.id === strike.targetId);
+
+    if (strike.weapon.id === "transmutation-circle") {
+      if (time < strike.lockedAt) {
+        if (target?.alive) {
+          strike.aimPosition = { ...target.position };
+        }
+        continue;
+      }
+
+      if (time < strike.resolvesAt) {
+        continue;
+      }
+
+      effects.push(
+        createEffect("explosion", strike.aimPosition, strike.weapon.radius + 46, time, attacker?.palette.glow ?? "#ffe08a", {
+          weaponId: strike.weapon.id,
+        })
+      );
+      events.push({ type: "sound", time, sound: "explosion" });
+      addDamageBits(
+        effects,
+        strike.aimPosition,
+        { x: 0, y: -1 },
+        attacker?.palette ?? { body: "#d9a441", trim: "#4b3414", glow: "#ffe08a" },
+        time,
+        strike.weapon.id,
+        22
+      );
+
+      if (attacker?.alive) {
+        for (const robot of robots) {
+          if (!robot.alive || robot.id === attacker.id) {
+            continue;
+          }
+
+          const gap = distance(robot.position, strike.aimPosition);
+          if (gap > strike.weapon.radius + ROBOT_RADIUS) {
+            continue;
+          }
+
+          const falloff = Math.max(0.45, 1 - gap / (strike.weapon.radius + ROBOT_RADIUS));
+          applyDamage(
+            attacker,
+            robot,
+            {
+              ...strike.weapon,
+              damage: strike.weapon.damage * falloff,
+              knockback: strike.weapon.knockback * falloff,
+            },
+            time,
+            events,
+            damageByRobot,
+            effects,
+            sub(robot.position, strike.aimPosition)
+          );
+        }
+      }
+
+      pendingStrikes.splice(index, 1);
+      continue;
+    }
 
     if (time < strike.lockedAt) {
       if (target?.alive) {
@@ -1602,7 +1784,25 @@ function captureFrame(
       .map((strike): EffectFrame | undefined => {
         const attacker = robots.find((robot) => robot.id === strike.attackerId);
 
-        if (!attacker || time > strike.resolvesAt) {
+        if (time > strike.resolvesAt) {
+          return undefined;
+        }
+
+        if (strike.weapon.id === "transmutation-circle") {
+          return {
+            id: `${strike.id}-telegraph-${time}`,
+            type: "telegraph",
+            position: { ...strike.aimPosition },
+            weaponId: strike.weapon.id,
+            radius: strike.weapon.radius,
+            age: Math.max(0, time - strike.createdAt),
+            duration: strike.resolvesAt - strike.createdAt,
+            color: attacker?.palette.glow ?? "#ffe08a",
+            variant: time >= strike.lockedAt ? 1 : 0,
+          };
+        }
+
+        if (!attacker) {
           return undefined;
         }
 

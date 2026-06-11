@@ -80,6 +80,44 @@ export const ROBOT_CLASSES: RobotClass[] = [
       glow: "#a9e8ff",
     },
   },
+  {
+    id: "druid",
+    name: "Druid",
+    hp: 88,
+    speed: 66,
+    armor: 0.02,
+    mass: 0.78,
+    shield: 0,
+    impactDamage: 4,
+    turnSpeed: 3.8,
+    rotationSpeed: 1,
+    arsenal: ["flash-bloom", "thorn-minions", "ray", "emp"],
+    movementProfile: "flanker",
+    palette: {
+      body: "#2fbf71",
+      trim: "#204a2e",
+      glow: "#b6f36b",
+    },
+  },
+  {
+    id: "alchemist",
+    name: "Alchemist",
+    hp: 125,
+    speed: 56,
+    armor: 0.09,
+    mass: 1,
+    shield: 12,
+    impactDamage: 7,
+    turnSpeed: 2.8,
+    rotationSpeed: 1,
+    arsenal: ["gold-flask", "transmutation-circle", "mine", "rocket"],
+    movementProfile: "balanced",
+    palette: {
+      body: "#d9a441",
+      trim: "#4b3414",
+      glow: "#ffe08a",
+    },
+  },
 ];
 
 const LEGACY_CLASS_PALETTES: Record<string, RobotClass["palette"]> = {
@@ -322,6 +360,62 @@ export const WEAPONS: WeaponDefinition[] = [
     rarity: "uncommon",
     sound: "missile",
   },
+  {
+    id: "flash-bloom",
+    name: "Flash Bloom",
+    kind: "instant",
+    range: 560,
+    damage: 11,
+    projectileSpeed: 0,
+    cooldown: 1.8,
+    radius: 125,
+    homing: 0,
+    knockback: 28,
+    rarity: "uncommon",
+    sound: "emp",
+  },
+  {
+    id: "thorn-minions",
+    name: "Thorn Minions",
+    kind: "projectile",
+    range: 680,
+    damage: 7,
+    projectileSpeed: 300,
+    cooldown: 3.2,
+    radius: 15,
+    homing: 0.26,
+    knockback: 18,
+    rarity: "rare",
+    sound: "mine",
+  },
+  {
+    id: "gold-flask",
+    name: "Gold Flask",
+    kind: "projectile",
+    range: 620,
+    damage: 22,
+    projectileSpeed: 360,
+    cooldown: 2.4,
+    radius: 18,
+    homing: 0.03,
+    knockback: 46,
+    rarity: "uncommon",
+    sound: "missile",
+  },
+  {
+    id: "transmutation-circle",
+    name: "Transmutation Circle",
+    kind: "field",
+    range: 660,
+    damage: 36,
+    projectileSpeed: 0,
+    cooldown: 4.1,
+    radius: 118,
+    homing: 0,
+    knockback: 92,
+    rarity: "rare",
+    sound: "charge",
+  },
 ];
 
 export const DEFAULT_ROBOTS: RobotConfig[] = [
@@ -359,25 +453,34 @@ export function getClass(classId: string, classes = ROBOT_CLASSES): RobotClass {
 // turnSpeed / impactDamage added later) using the built-in catalog as the
 // source of defaults, while preserving any values the user customized.
 export function withClassDefaults(classes: RobotClass[]): RobotClass[] {
-  return classes.map((robotClass) => {
-    const base = ROBOT_CLASSES.find((candidate) => candidate.id === robotClass.id);
-    const rawRotation = Number.isFinite(robotClass.rotationSpeed)
-      ? robotClass.rotationSpeed
-      : base?.rotationSpeed ?? 1;
-    const rotationSpeed = Math.min(3, Math.max(0, rawRotation));
-
-    return {
-      ...base,
-      ...robotClass,
-      impactDamage: Number.isFinite(robotClass.impactDamage)
-        ? robotClass.impactDamage
-        : base?.impactDamage ?? 8,
-      turnSpeed: Number.isFinite(robotClass.turnSpeed) ? robotClass.turnSpeed : base?.turnSpeed ?? 3,
-      rotationSpeed,
-      palette: normalizeClassPalette(robotClass, base),
-      arsenal: [...robotClass.arsenal],
-    };
+  const merged = ROBOT_CLASSES.map((base) => {
+    const override = classes.find((candidate) => candidate.id === base.id);
+    return withClassDefault(override ?? base, base);
   });
+  const custom = classes
+    .filter((robotClass) => !ROBOT_CLASSES.some((base) => base.id === robotClass.id))
+    .map((robotClass) => withClassDefault(robotClass, undefined));
+
+  return [...merged, ...custom];
+}
+
+function withClassDefault(robotClass: RobotClass, base: RobotClass | undefined): RobotClass {
+  const rawRotation = Number.isFinite(robotClass.rotationSpeed)
+    ? robotClass.rotationSpeed
+    : base?.rotationSpeed ?? 1;
+  const rotationSpeed = Math.min(3, Math.max(0, rawRotation));
+
+  return {
+    ...base,
+    ...robotClass,
+    impactDamage: Number.isFinite(robotClass.impactDamage)
+      ? robotClass.impactDamage
+      : base?.impactDamage ?? 8,
+    turnSpeed: Number.isFinite(robotClass.turnSpeed) ? robotClass.turnSpeed : base?.turnSpeed ?? 3,
+    rotationSpeed,
+    palette: normalizeClassPalette(robotClass, base),
+    arsenal: [...(robotClass.arsenal?.length ? robotClass.arsenal : base?.arsenal ?? [])],
+  };
 }
 
 function normalizeClassPalette(

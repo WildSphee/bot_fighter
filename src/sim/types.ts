@@ -62,7 +62,11 @@ export type WeaponId =
   | "shield"
   | "emp"
   | "railgun"
-  | "rocket";
+  | "rocket"
+  | "flash-bloom"
+  | "thorn-minions"
+  | "gold-flask"
+  | "transmutation-circle";
 
 export type WeightedDie<T extends string> = {
   id: T;
