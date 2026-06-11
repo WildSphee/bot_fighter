@@ -66,7 +66,19 @@ export type WeaponId =
   | "flash-bloom"
   | "thorn-minions"
   | "gold-flask"
-  | "transmutation-circle";
+  | "transmutation-circle"
+  | "flame-line"
+  | "dragon-breath";
+
+export type StatusEffectId = "burning" | "bramble" | "decay" | "frozen";
+
+export type StatusFrame = {
+  id: StatusEffectId;
+  label: string;
+  color: string;
+  remaining: number;
+  duration: number;
+};
 
 export type WeightedDie<T extends string> = {
   id: T;
@@ -137,6 +149,7 @@ export type RobotFrame = {
   alive: boolean;
   lastMove: MovementId;
   lastWeapon?: WeaponId;
+  statuses: StatusFrame[];
 };
 
 export type ProjectileFrame = {
@@ -207,6 +220,13 @@ export type SoundEventType =
   | "shield-hit"
   | "shield-break"
   | "emp"
+  | "glass-break"
+  | "leaf"
+  | "boulder"
+  | "fire"
+  | "fire-burst"
+  | "burning"
+  | "flamethrower"
   | "winner";
 
 export type FightEvent =

@@ -1,9 +1,19 @@
+import smaugBurningUrl from "./generated/smaug-burning.mp3?url";
+import smaugFireBurstUrl from "./generated/smaug-fire-burst.mp3?url";
+import smaugFlamethrowerUrl from "./generated/smaug-flamethrower.mp3?url";
 import type { SoundEventType } from "../sim/types";
 
 export type SoundEngine = {
   context: AudioContext;
   play: (type: SoundEventType, when?: number) => void;
+  ready: Promise<void>;
   close: () => Promise<void>;
+};
+
+const SAMPLE_URLS: Partial<Record<SoundEventType, string>> = {
+  burning: smaugBurningUrl,
+  "fire-burst": smaugFireBurstUrl,
+  flamethrower: smaugFlamethrowerUrl,
 };
 
 export function createSoundEngine(options: {
@@ -15,6 +25,8 @@ export function createSoundEngine(options: {
   const output = context.createGain();
   output.gain.value = 0.38;
   output.connect(options.destination ?? context.destination);
+  const sampleBuffers: Partial<Record<SoundEventType, AudioBuffer>> = {};
+  const ready = preloadSamples(context, sampleBuffers);
 
   if (options.destination && options.monitor) {
     output.connect(context.destination);
@@ -29,10 +41,48 @@ export function createSoundEngine(options: {
         void context.resume();
       }
 
-      playSound(context, output, type, when);
+      playSoundOrSample(type, when);
     },
+    ready,
     close: () => (options.context ? Promise.resolve() : context.close()),
   };
+
+  function playSoundOrSample(type: SoundEventType, when: number) {
+    const sample = sampleBuffers[type];
+    if (sample) {
+      const source = context.createBufferSource();
+      const gain = context.createGain();
+      source.buffer = sample;
+      gain.gain.value = type === "flamethrower" ? 0.78 : 0.68;
+      source.connect(gain);
+      gain.connect(output);
+      source.start(when);
+      return;
+    }
+
+    playSound(context, output, type, when);
+  }
+}
+
+async function preloadSamples(
+  context: AudioContext,
+  sampleBuffers: Partial<Record<SoundEventType, AudioBuffer>>
+): Promise<void> {
+  await Promise.all(
+    Object.entries(SAMPLE_URLS).map(async ([type, url]) => {
+      if (!url) {
+        return;
+      }
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        return;
+      }
+
+      const data = await response.arrayBuffer();
+      sampleBuffers[type as SoundEventType] = await context.decodeAudioData(data.slice(0));
+    })
+  );
 }
 
 function playSound(
@@ -205,6 +255,70 @@ function playSound(
       tone(context, output, when + 0.12, 0.14, 72, 52, "square", 0.07);
       tone(context, output, when + 0.26, 0.14, 58, 42, "square", 0.06);
       tone(context, output, when + 0.4, 0.18, 48, 24, "triangle", 0.08);
+      break;
+
+    case "glass-break":
+      // Alchemist flask: brittle glass crack plus a small liquid splash.
+      noiseBurst(context, output, when, 0.018, 9200, 0.24);
+      noiseBurst(context, output, when + 0.018, 0.05, 6200, 0.16);
+      noiseBurst(context, output, when + 0.055, 0.12, 2600, 0.08);
+      tone(context, output, when, 0.08, 1900, 620, "triangle", 0.045);
+      tone(context, output, when + 0.035, 0.11, 1280, 360, "sine", 0.035);
+      break;
+
+    case "leaf":
+      // Druid minions: dry leaves rushing forward with a soft twig snap.
+      noiseBurst(context, output, when, 0.12, 3400, 0.055);
+      noiseBurst(context, output, when + 0.07, 0.2, 1800, 0.045);
+      noiseBurst(context, output, when + 0.18, 0.16, 950, 0.035);
+      tone(context, output, when + 0.035, 0.08, 360, 210, "triangle", 0.025);
+      tone(context, output, when + 0.18, 0.06, 520, 300, "square", 0.018);
+      break;
+
+    case "boulder":
+      // Druid rock bloom: heavy stone rise and dull ground impact.
+      noiseBurst(context, output, when, 0.06, 900, 0.16);
+      noiseBurst(context, output, when + 0.045, 0.22, 260, 0.14);
+      tone(context, output, when, 0.34, 82, 36, "sawtooth", 0.11);
+      tone(context, output, when + 0.06, 0.24, 48, 28, "triangle", 0.09);
+      noiseBurst(context, output, when + 0.18, 0.18, 1200, 0.045);
+      break;
+
+    case "fire":
+      // Dragon fire: a hot ignition snap with a low rolling burn underneath.
+      noiseBurst(context, output, when, 0.045, 5200, 0.2);
+      noiseBurst(context, output, when + 0.025, 0.72, 580, 0.14);
+      noiseBurst(context, output, when + 0.14, 0.48, 1450, 0.08);
+      tone(context, output, when, 0.5, 124, 46, "sawtooth", 0.1);
+      tone(context, output, when + 0.06, 0.34, 74, 38, "triangle", 0.07);
+      break;
+
+    case "fire-burst":
+      // Flame Line ignition: a sharp whoomph with a broad hot front.
+      noiseBurst(context, output, when, 0.035, 7600, 0.28);
+      noiseBurst(context, output, when + 0.018, 0.34, 980, 0.2);
+      noiseBurst(context, output, when + 0.07, 0.52, 420, 0.12);
+      tone(context, output, when, 0.24, 92, 34, "sawtooth", 0.18);
+      tone(context, output, when + 0.028, 0.2, 210, 58, "triangle", 0.08);
+      break;
+
+    case "burning":
+      // Status burn: smaller ember crackles, kept short so repeated ticks layer cleanly.
+      noiseBurst(context, output, when, 0.035, 4200, 0.08);
+      noiseBurst(context, output, when + 0.04, 0.08, 1800, 0.055);
+      noiseBurst(context, output, when + 0.11, 0.12, 820, 0.045);
+      tone(context, output, when + 0.02, 0.16, 190, 82, "triangle", 0.035);
+      break;
+
+    case "flamethrower":
+      // Deep sustained flamethrower: sub-pressure plus turbulent high fire.
+      noiseBurst(context, output, when, 0.06, 6400, 0.16);
+      noiseBurst(context, output, when + 0.03, 1.15, 620, 0.24);
+      noiseBurst(context, output, when + 0.18, 0.95, 1350, 0.12);
+      noiseBurst(context, output, when + 0.55, 0.62, 260, 0.14);
+      tone(context, output, when, 1.05, 78, 42, "sawtooth", 0.18);
+      tone(context, output, when + 0.08, 0.88, 46, 32, "triangle", 0.14);
+      tone(context, output, when + 0.16, 0.7, 132, 66, "sawtooth", 0.06);
       break;
 
     case "winner":

@@ -91,6 +91,8 @@ describe("simulateFight", () => {
       "thorn-minions": ["projectile", "spark"],
       "gold-flask": ["projectile", "puddle"],
       "transmutation-circle": ["telegraph", "explosion"],
+      "flame-line": ["telegraph", "beam"],
+      "dragon-breath": ["cone"],
     };
 
     for (const weapon of WEAPONS) {
@@ -432,9 +434,13 @@ describe("simulateFight", () => {
     const puddleHit = result.events.some(
       (event) => event.type === "hit" && event.weaponId === "gold-flask"
     );
+    const glassBreak = result.events.some(
+      (event) => event.type === "sound" && event.sound === "glass-break"
+    );
 
     expect(hasPuddle).toBe(true);
     expect(puddleHit).toBe(true);
+    expect(glassBreak).toBe(true);
   });
 
   it("fires thorn minions as a seven-shot staggered volley", () => {
@@ -457,6 +463,9 @@ describe("simulateFight", () => {
 
     const result = simulateFight(config);
     const thornProjectiles = new Map<string, number>();
+    const leafCast = result.events.some(
+      (event) => event.type === "weapon" && event.weaponId === "thorn-minions" && event.sound === "leaf"
+    );
     for (const frame of result.frames) {
       for (const projectile of frame.projectiles) {
         if (projectile.weaponId === "thorn-minions") {
@@ -465,10 +474,37 @@ describe("simulateFight", () => {
       }
     }
 
+    expect(leafCast).toBe(true);
     expect(thornProjectiles.size).toBeGreaterThanOrEqual(7);
     for (const speed of thornProjectiles.values()) {
       expect(speed).toBeGreaterThan(830);
     }
+  });
+
+  it("uses a boulder sound when flash bloom creates a rock", () => {
+    const config = createDefaultFightConfig("flash-bloom-boulder-sound");
+    config.maxDuration = 1;
+    config.centerGravity = 0;
+    config.classes = config.classes.map((robotClass) => ({
+      ...robotClass,
+      speed: 0,
+      turnSpeed: 100,
+      arsenal: ["flash-bloom"],
+    }));
+    config.robots = config.robots.map((robot, index) => ({
+      ...robot,
+      classId: config.classes[index].id,
+      arsenal: ["flash-bloom"],
+      weaponDice: [{ id: "flash-bloom", weight: 1 }],
+      movementDice: [{ id: "hold", weight: 1 }],
+    }));
+
+    const result = simulateFight(config);
+    const boulderCast = result.events.some(
+      (event) => event.type === "weapon" && event.weaponId === "flash-bloom" && event.sound === "boulder"
+    );
+
+    expect(boulderCast).toBe(true);
   });
 
   it("lets the neon blade destroy projectiles during its swing", () => {
@@ -513,5 +549,55 @@ describe("simulateFight", () => {
 
     expect(hasBlade).toBe(true);
     expect(destroyedProjectile).toBe(true);
+  });
+
+  it("adds Smaug as a high-health no-shield dragon bot with fire weapons", () => {
+    const config = createDefaultFightConfig("smaug-catalog");
+    const smaug = config.classes.find((robotClass) => robotClass.id === "smaug");
+
+    expect(smaug?.name).toBe("Smaug");
+    expect(smaug?.hp).toBeGreaterThan(200);
+    expect(smaug?.shield).toBe(0);
+    expect(smaug?.turnSpeed).toBeLessThan(1.5);
+    expect(smaug?.arsenal).toEqual(["flame-line", "dragon-breath"]);
+  });
+
+  it("lets Smaug fire inflict burning status damage over time", () => {
+    const config = createDefaultFightConfig("smaug-burning");
+    config.maxDuration = 6.2;
+    config.centerGravity = 0;
+    config.arena = {
+      ...config.arena,
+      width: 520,
+      height: 520,
+      drag: 1,
+    };
+    config.classes = config.classes.map((robotClass) => ({
+      ...robotClass,
+      speed: 0,
+      turnSpeed: 100,
+      shield: 0,
+      armor: 0,
+      hp: robotClass.id === "smaug" ? robotClass.hp : 500,
+      arsenal: robotClass.id === "smaug" ? ["dragon-breath"] : [],
+    }));
+    config.robots = config.robots.map((robot, index) => ({
+      ...robot,
+      classId: index === 0 ? "smaug" : "bulwark",
+      arsenal: index === 0 ? ["dragon-breath"] : [],
+      weaponDice: index === 0 ? [{ id: "dragon-breath", weight: 1 }] : [],
+      movementDice: [{ id: "hold", weight: 1 }],
+    }));
+
+    const result = simulateFight(config);
+    const burningFrame = result.frames.find((frame) =>
+      frame.robots.some((robot) => robot.id === config.robots[1].id && robot.statuses.some((status) => status.id === "burning"))
+    );
+    const burningTicks = result.events.filter(
+      (event) => event.type === "hit" && event.weaponId === "dragon-breath" && event.damage === 5
+    );
+
+    expect(burningFrame).toBeDefined();
+    expect(burningTicks.length).toBeGreaterThanOrEqual(2);
   });
 });

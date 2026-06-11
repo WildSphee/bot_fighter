@@ -9,6 +9,7 @@
     "dev:backend": "tsx watch server/index.ts",
     "start": "npm run start:dev",
     "start:dev": "node scripts/start-dev.mjs",
+    "sfx:smaug": "node scripts/generate-smaug-sfx.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",

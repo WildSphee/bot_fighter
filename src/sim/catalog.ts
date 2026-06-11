@@ -118,6 +118,25 @@ export const ROBOT_CLASSES: RobotClass[] = [
       glow: "#ffe08a",
     },
   },
+  {
+    id: "smaug",
+    name: "Smaug",
+    hp: 230,
+    speed: 42,
+    armor: 0.12,
+    mass: 1.42,
+    shield: 0,
+    impactDamage: 12,
+    turnSpeed: 1.15,
+    rotationSpeed: 0.45,
+    arsenal: ["flame-line", "dragon-breath"],
+    movementProfile: "charger",
+    palette: {
+      body: "#ff1f1f",
+      trim: "#611111",
+      glow: "#ffb13b",
+    },
+  },
 ];
 
 const LEGACY_CLASS_PALETTES: Record<string, RobotClass["palette"]> = {
@@ -372,7 +391,7 @@ export const WEAPONS: WeaponDefinition[] = [
     homing: 0,
     knockback: 0,
     rarity: "uncommon",
-    sound: "mine",
+    sound: "boulder",
   },
   {
     id: "thorn-minions",
@@ -386,7 +405,7 @@ export const WEAPONS: WeaponDefinition[] = [
     homing: 0,
     knockback: 18,
     rarity: "rare",
-    sound: "mine",
+    sound: "leaf",
   },
   {
     id: "gold-flask",
@@ -415,6 +434,34 @@ export const WEAPONS: WeaponDefinition[] = [
     knockback: 92,
     rarity: "rare",
     sound: "charge",
+  },
+  {
+    id: "flame-line",
+    name: "Flame Line",
+    kind: "field",
+    range: 840,
+    damage: 28,
+    projectileSpeed: 0,
+    cooldown: 4.4,
+    radius: 88,
+    homing: 0,
+    knockback: 40,
+    rarity: "rare",
+    sound: "fire-burst",
+  },
+  {
+    id: "dragon-breath",
+    name: "Dragon Breath",
+    kind: "instant",
+    range: 330,
+    damage: 26,
+    projectileSpeed: 0,
+    cooldown: 5.8,
+    radius: 92,
+    homing: 0,
+    knockback: 18,
+    rarity: "rare",
+    sound: "flamethrower",
   },
 ];
 

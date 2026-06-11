@@ -10,6 +10,8 @@ import type {
   ProjectileFrame,
   RobotConfig,
   RobotFrame,
+  StatusEffectId,
+  StatusFrame,
   Vec2,
   WeaponDefinition,
   WeaponId,
@@ -17,7 +19,7 @@ import type {
 } from "./types";
 import { add, angleTo, clamp, distance, mul, normalize, rotate90, sub, ZERO } from "./vector";
 
-type RobotState = RobotFrame & {
+type RobotState = Omit<RobotFrame, "statuses"> & {
   arsenal: RobotConfig["arsenal"];
   movementDice: RobotConfig["movementDice"];
   weaponDice: RobotConfig["weaponDice"];
@@ -30,6 +32,19 @@ type RobotState = RobotFrame & {
   moveDeviation: number;
   lastCollisionAt: number;
   lastDamagedAt: number;
+  statuses: Partial<Record<StatusEffectId, ActiveStatus>>;
+  tailHitCooldowns: Record<string, number>;
+};
+
+type ActiveStatus = {
+  id: StatusEffectId;
+  sourceId?: string;
+  weaponId?: WeaponId;
+  startedAt: number;
+  expiresAt: number;
+  duration: number;
+  lastTickAt: number;
+  damagePerSecond?: number;
 };
 
 type ProjectileState = ProjectileFrame & {
@@ -67,6 +82,28 @@ type PendingStrike = {
   createdAt: number;
   lockedAt: number;
   resolvesAt: number;
+};
+
+type PendingFlameLine = {
+  id: string;
+  weapon: WeaponDefinition;
+  attackerId: string;
+  startPosition: Vec2;
+  endPosition: Vec2;
+  createdAt: number;
+  resolvesAt: number;
+  expiresAt: number;
+  lastTickAt: number;
+  hitRobotIds: Set<string>;
+};
+
+type ActiveBreath = {
+  id: string;
+  weapon: WeaponDefinition;
+  attackerId: string;
+  startedAt: number;
+  expiresAt: number;
+  lastTickAt: number;
 };
 
 type BladeSwingState = {
@@ -162,6 +199,22 @@ const GOLD_FLASK_TICK_SECONDS = 0.35;
 const FLASH_ROCK_SECONDS = 8.4;
 const THORN_MINION_COUNT = 7;
 const THORN_MINION_SHOT_INTERVAL = 0.08;
+const FLAME_LINE_TELEGRAPH_SECONDS = 1.5;
+const FLAME_LINE_PILLAR_SECONDS = 0.9;
+const FLAME_LINE_TICK_SECONDS = 0.25;
+const DRAGON_BREATH_SECONDS = 3;
+const DRAGON_BREATH_TICK_SECONDS = 0.25;
+const BURNING_SECONDS = 4;
+const BRAMBLE_SECONDS = 3;
+const DECAY_SECONDS = 4;
+const FROZEN_SECONDS = 3;
+const BURNING_DAMAGE_FRACTION = 0.01;
+const FROZEN_MOVE_MULTIPLIER = 0.42;
+const SMAUG_TAIL_LENGTH = 98;
+const SMAUG_TAIL_SEGMENTS = 7;
+const SMAUG_TAIL_RADIUS = 30;
+const SMAUG_TAIL_COOLDOWN = 0.75;
+const SMAUG_TAIL_KNOCKBACK = 92;
 
 export function simulateFight(config: FightConfig): FightResult {
   const rng = createRng(`${config.seed}:${config.robots.map((robot) => robot.id).join("|")}`);
@@ -169,6 +222,8 @@ export function simulateFight(config: FightConfig): FightResult {
   const robots = createInitialRobots(config);
   const projectiles: ProjectileState[] = [];
   const pendingStrikes: PendingStrike[] = [];
+  const pendingFlameLines: PendingFlameLine[] = [];
+  const activeBreaths: ActiveBreath[] = [];
   const bladeSwings: BladeSwingState[] = [];
   const pendingShots: PendingShot[] = [];
   const mines: MineState[] = [];
@@ -208,7 +263,7 @@ export function simulateFight(config: FightConfig): FightResult {
 
     if (deathTime !== undefined && time >= deathTime + WINNER_SCREEN_SECONDS) {
       pruneEffects(effects, deathTime + (time - deathTime) * 0.5);
-      captureFrame(time, robots, projectiles, effects, pendingStrikes, bladeSwings, mines, hazards, obstacles, frames);
+      captureFrame(time, robots, projectiles, effects, pendingStrikes, pendingFlameLines, activeBreaths, bladeSwings, mines, hazards, obstacles, frames);
       break;
     }
 
@@ -266,6 +321,8 @@ export function simulateFight(config: FightConfig): FightResult {
               rngNext: rng.next,
               projectiles,
               pendingStrikes,
+              pendingFlameLines,
+              activeBreaths,
               bladeSwings,
               pendingShots,
               mines,
@@ -286,20 +343,26 @@ export function simulateFight(config: FightConfig): FightResult {
                 ? time + RAILGUN_CHARGE_SECONDS + RAILGUN_RESOLVE_SECONDS + RAILGUN_PAUSE_BUFFER
                 : weaponId === "transmutation-circle"
                   ? time + TRANSMUTATION_RESOLVE_SECONDS + TRANSMUTATION_PAUSE_BUFFER
+                : weaponId === "dragon-breath"
+                  ? time + DRAGON_BREATH_SECONDS + 0.25
                 : time + weaponInterval;
           }
         }
       }
 
+      updateStatuses(robots, effects, events, damageByRobot, time);
       for (const robot of robots) {
         integrateRobot(robot, config, tickStep);
       }
 
       resolveObstacleCollisions(robots, obstacles);
       resolveRobotCollisions(robots, effects, events, damageByRobot, time);
+      resolveSmaugTailHits(robots, effects, events, time);
       updatePendingStrikes(pendingStrikes, robots, effects, events, damageByRobot, time);
+      updateFlameLines(pendingFlameLines, robots, effects, events, damageByRobot, time);
       updatePendingShots(pendingShots, robots, projectiles, effects, time);
       updateBladeSwings(bladeSwings, robots, projectiles, effects, events, damageByRobot, time);
+      updateBreaths(activeBreaths, robots, effects, events, damageByRobot, time);
       updateProjectiles(projectiles, robots, config.arena, hazards, effects, events, damageByRobot, time, tickStep);
       updateMines(mines, robots, effects, events, damageByRobot, time);
       updateHazards(hazards, robots, effects, events, damageByRobot, time);
@@ -317,7 +380,7 @@ export function simulateFight(config: FightConfig): FightResult {
     }
 
     if (time + 0.0001 >= nextFrameAt) {
-      captureFrame(time, robots, projectiles, effects, pendingStrikes, bladeSwings, mines, hazards, obstacles, frames);
+      captureFrame(time, robots, projectiles, effects, pendingStrikes, pendingFlameLines, activeBreaths, bladeSwings, mines, hazards, obstacles, frames);
       nextFrameAt += frameStep;
     }
   }
@@ -329,7 +392,7 @@ export function simulateFight(config: FightConfig): FightResult {
     events.push({ type: "winner", time, winnerId, reason: winnerReason, sound: "winner" });
     for (let holdTime = time; holdTime <= time + WINNER_SCREEN_SECONDS + 0.0001; holdTime += frameStep) {
       pruneEffects(effects, holdTime);
-      captureFrame(Number(holdTime.toFixed(4)), robots, projectiles, effects, pendingStrikes, bladeSwings, mines, hazards, obstacles, frames);
+      captureFrame(Number(holdTime.toFixed(4)), robots, projectiles, effects, pendingStrikes, pendingFlameLines, activeBreaths, bladeSwings, mines, hazards, obstacles, frames);
     }
   }
 
@@ -386,6 +449,8 @@ function createInitialRobots(config: FightConfig): RobotState[] {
       moveDeviation: ((index % 2 === 0 ? 7 : -7) * Math.PI) / 180,
       lastCollisionAt: -1,
       lastDamagedAt: -Infinity,
+      statuses: {},
+      tailHitCooldowns: {},
     };
   });
 }
@@ -436,7 +501,10 @@ function applyMovement(
     robot.position.x > config.arena.width - 90 ||
     robot.position.y > config.arena.height - 90;
   const vector = rotateVector(nearWall ? boundaryVector : movementVector[robot.intent], robot.moveDeviation);
-  robot.velocity = add(robot.velocity, mul(vector, robotClass.speed * dt));
+  const movementMultiplier = movementMultiplierFor(robot);
+  if (movementMultiplier > 0) {
+    robot.velocity = add(robot.velocity, mul(vector, robotClass.speed * movementMultiplier * dt));
+  }
   const turnSpeed = Number.isFinite(robotClass.turnSpeed) ? robotClass.turnSpeed : 3;
   const rotFactor = Number.isFinite(robotClass.rotationSpeed) ? robotClass.rotationSpeed : 1;
   robot.angle = turnToward(robot.angle, angleTo(robot.position, target.position), turnSpeed * dt * rotFactor);
@@ -452,6 +520,13 @@ function turnToward(current: number, desired: number, maxStep: number): number {
 
 function integrateRobot(robot: RobotState, config: FightConfig, dt: number) {
   const robotClass = robot.classProfile;
+  const movementMultiplier = movementMultiplierFor(robot);
+
+  if (movementMultiplier <= 0) {
+    robot.velocity = ZERO;
+    robot.position = clampToArena(robot.position, config.arena, ROBOT_RADIUS);
+    return;
+  }
 
   // Passive center gravity: a gentle pull toward the arena middle layered on top
   // of the bot's own movement. Affects bots only — never projectiles.
@@ -459,11 +534,11 @@ function integrateRobot(robot: RobotState, config: FightConfig, dt: number) {
   if (pull > 0) {
     const center = { x: config.arena.width / 2, y: config.arena.height / 2 };
     const toward = normalize(sub(center, robot.position));
-    robot.velocity = add(robot.velocity, mul(toward, pull * CENTER_GRAVITY_ACCEL * dt));
+    robot.velocity = add(robot.velocity, mul(toward, pull * CENTER_GRAVITY_ACCEL * movementMultiplier * dt));
   }
 
-  robot.velocity = mul(robot.velocity, config.arena.drag);
-  robot.position = add(robot.position, mul(robot.velocity, dt * 60));
+  robot.velocity = mul(robot.velocity, config.arena.drag * (hasActiveStatus(robot, "frozen") ? 0.94 : 1));
+  robot.position = add(robot.position, mul(robot.velocity, dt * 60 * movementMultiplier));
 
   const minX = ROBOT_RADIUS;
   const minY = ROBOT_RADIUS;
@@ -546,6 +621,112 @@ function resolveRobotCollisions(
   }
 }
 
+function resolveSmaugTailHits(
+  robots: RobotState[],
+  effects: EffectFrame[],
+  events: FightEvent[],
+  time: number
+) {
+  for (const smaug of robots) {
+    if (!smaug.alive || smaug.classId !== "smaug") {
+      continue;
+    }
+
+    const tailPoints = smaugTailPoints(smaug, time);
+
+    for (const target of robots) {
+      if (!target.alive || target.id === smaug.id || target.teamId === smaug.teamId) {
+        continue;
+      }
+
+      if ((smaug.tailHitCooldowns[target.id] ?? -Infinity) + SMAUG_TAIL_COOLDOWN > time) {
+        continue;
+      }
+
+      const contact = closestTailContact(target.position, tailPoints);
+      if (contact.distance > ROBOT_RADIUS + SMAUG_TAIL_RADIUS) {
+        continue;
+      }
+
+      const pushDirection = normalize(sub(target.position, contact.point));
+      const direction = pushDirection.x === 0 && pushDirection.y === 0 ? contact.segmentDirection : pushDirection;
+      target.velocity = add(
+        target.velocity,
+        mul(direction, (SMAUG_TAIL_KNOCKBACK * KNOCKBACK_MULTIPLIER) / target.classProfile.mass)
+      );
+      smaug.velocity = add(smaug.velocity, mul(direction, -18 / smaug.classProfile.mass));
+      smaug.tailHitCooldowns[target.id] = time;
+      effects.push(createEffect("spark", target.position, 28, time, smaug.palette.glow, { weaponId: "dragon-breath" }));
+      events.push({ type: "sound", time, sound: "impact" });
+    }
+  }
+}
+
+function smaugTailPoints(smaug: RobotState, time: number): Vec2[] {
+  const forward = { x: Math.cos(smaug.angle), y: Math.sin(smaug.angle) };
+  const side = rotate90(forward, 1);
+  const base = add(smaug.position, mul(forward, -ROBOT_RADIUS * 0.55));
+  const speed = Math.hypot(smaug.velocity.x, smaug.velocity.y);
+  const localSide =
+    speed > 1 ? (side.x * smaug.velocity.x + side.y * smaug.velocity.y) / speed : 0;
+  const tailTarget =
+    Math.sin(time * 2.1 + smaug.id.length * 0.37) * 0.34 - localSide * 0.16;
+  const points: Vec2[] = [];
+  let point = { ...base };
+  points.push(point);
+
+  for (let index = 1; index <= SMAUG_TAIL_SEGMENTS; index += 1) {
+    const t = index / SMAUG_TAIL_SEGMENTS;
+    const dragAngle = tailTarget * Math.pow(t, 1.55);
+    const breathingOffset = Math.sin(time * 1.05 + t * Math.PI * 1.6) * 0.025 * t;
+    const segmentDirection = rotateVector(mul(forward, -1), dragAngle + breathingOffset);
+    point = add(point, mul(segmentDirection, SMAUG_TAIL_LENGTH / SMAUG_TAIL_SEGMENTS));
+    points.push(point);
+  }
+
+  return points;
+}
+
+function closestTailContact(point: Vec2, tailPoints: Vec2[]): { distance: number; point: Vec2; segmentDirection: Vec2 } {
+  let closest = {
+    distance: Infinity,
+    point: tailPoints[0] ?? ZERO,
+    segmentDirection: { x: 1, y: 0 },
+  };
+
+  for (let index = 0; index < tailPoints.length - 1; index += 1) {
+    const start = tailPoints[index];
+    const end = tailPoints[index + 1];
+    const contact = closestPointOnSegment(point, start, end);
+    const gap = distance(point, contact);
+
+    if (gap < closest.distance) {
+      closest = {
+        distance: gap,
+        point: contact,
+        segmentDirection: normalize(sub(end, start)),
+      };
+    }
+  }
+
+  return closest;
+}
+
+function closestPointOnSegment(point: Vec2, start: Vec2, end: Vec2): Vec2 {
+  const line = sub(end, start);
+  const lineLengthSquared = line.x * line.x + line.y * line.y;
+
+  if (lineLengthSquared <= 0.001) {
+    return { ...start };
+  }
+
+  const t = clamp(((point.x - start.x) * line.x + (point.y - start.y) * line.y) / lineLengthSquared, 0, 1);
+  return {
+    x: start.x + line.x * t,
+    y: start.y + line.y * t,
+  };
+}
+
 function applyCollisionDamage(
   attacker: RobotState,
   target: RobotState,
@@ -598,6 +779,8 @@ function fireWeapon(input: {
   rngNext: () => number;
   projectiles: ProjectileState[];
   pendingStrikes: PendingStrike[];
+  pendingFlameLines: PendingFlameLine[];
+  activeBreaths: ActiveBreath[];
   bladeSwings: BladeSwingState[];
   pendingShots: PendingShot[];
   mines: MineState[];
@@ -619,9 +802,10 @@ function fireWeapon(input: {
     rngNext,
     projectiles,
     pendingStrikes,
+    pendingFlameLines,
+    activeBreaths,
     bladeSwings,
     pendingShots,
-    hazards,
     obstacles,
     effects,
     events,
@@ -648,6 +832,42 @@ function fireWeapon(input: {
     rollTotal,
     sound: weapon.sound,
   });
+
+  if (weapon.id === "flame-line") {
+    const startPosition = add(attacker.position, mul(direction, ROBOT_RADIUS + 12));
+    const endPosition = clampToArena(add(attacker.position, mul(direction, weapon.range)), input.arena, weapon.radius);
+    pendingFlameLines.push({
+      id: `flame-line-${attacker.id}-${time.toFixed(2)}`,
+      weapon,
+      attackerId: attacker.id,
+      startPosition,
+      endPosition,
+      createdAt: time,
+      resolvesAt: time + FLAME_LINE_TELEGRAPH_SECONDS,
+      expiresAt: time + FLAME_LINE_TELEGRAPH_SECONDS + FLAME_LINE_PILLAR_SECONDS,
+      lastTickAt: time + FLAME_LINE_TELEGRAPH_SECONDS - FLAME_LINE_TICK_SECONDS,
+      hitRobotIds: new Set(),
+    });
+    return true;
+  }
+
+  if (weapon.id === "dragon-breath") {
+    activeBreaths.push({
+      id: `dragon-breath-${attacker.id}-${time.toFixed(2)}`,
+      weapon,
+      attackerId: attacker.id,
+      startedAt: time,
+      expiresAt: time + DRAGON_BREATH_SECONDS,
+      lastTickAt: time - DRAGON_BREATH_TICK_SECONDS,
+    });
+    effects.push(
+      createEffect("cone", attacker.position, weapon.radius + 34, time, attacker.palette.glow, {
+        endPosition: add(attacker.position, mul(direction, weapon.range)),
+        weaponId: weapon.id,
+      })
+    );
+    return true;
+  }
 
   if (weapon.kind === "defense") {
     attacker.shield = clamp(attacker.shield + 22.4, 0, attacker.maxShield + 34);
@@ -1249,7 +1469,7 @@ function createGoldPuddle(
       weaponId: "gold-flask",
     })
   );
-  events.push({ type: "sound", time, sound: "mine" });
+  events.push({ type: "sound", time, sound: "glass-break" });
 }
 
 function detonateRocket(
@@ -1432,6 +1652,135 @@ function updateHazards(
   }
 }
 
+function updateFlameLines(
+  flameLines: PendingFlameLine[],
+  robots: RobotState[],
+  effects: EffectFrame[],
+  events: FightEvent[],
+  damageByRobot: Record<string, number>,
+  time: number
+) {
+  for (let index = flameLines.length - 1; index >= 0; index -= 1) {
+    const flameLine = flameLines[index];
+
+    if (time >= flameLine.expiresAt) {
+      flameLines.splice(index, 1);
+      continue;
+    }
+
+    if (time < flameLine.resolvesAt || time - flameLine.lastTickAt < FLAME_LINE_TICK_SECONDS) {
+      continue;
+    }
+
+    const attacker = robots.find((robot) => robot.id === flameLine.attackerId);
+    flameLine.lastTickAt = time;
+
+    if (!attacker?.alive) {
+      continue;
+    }
+
+    for (const robot of robots) {
+      if (!robot.alive || robot.id === attacker.id || robot.teamId === attacker.teamId) {
+        continue;
+      }
+
+      if (!pointInLineRectangle(robot.position, flameLine.startPosition, flameLine.endPosition, flameLine.weapon.radius + ROBOT_RADIUS)) {
+        continue;
+      }
+
+      const firstHit = !flameLine.hitRobotIds.has(robot.id);
+      flameLine.hitRobotIds.add(robot.id);
+      applyDamage(
+        attacker,
+        robot,
+        {
+          ...flameLine.weapon,
+          damage: flameLine.weapon.damage * (firstHit ? 1 : 0.28),
+          knockback: flameLine.weapon.knockback * (firstHit ? 1 : 0.2),
+        },
+        time,
+        events,
+        damageByRobot,
+        effects,
+        sub(robot.position, flameLine.startPosition)
+      );
+      applyStatus(robot, "burning", time, {
+        sourceId: attacker.id,
+        weaponId: flameLine.weapon.id,
+        damagePerSecond: robot.maxHp * BURNING_DAMAGE_FRACTION,
+      });
+      effects.push(
+        createEffect("spark", robot.position, 26, time, attacker.palette.glow, {
+          weaponId: flameLine.weapon.id,
+        })
+      );
+    }
+  }
+}
+
+function updateBreaths(
+  breaths: ActiveBreath[],
+  robots: RobotState[],
+  effects: EffectFrame[],
+  events: FightEvent[],
+  damageByRobot: Record<string, number>,
+  time: number
+) {
+  for (let index = breaths.length - 1; index >= 0; index -= 1) {
+    const breath = breaths[index];
+    const attacker = robots.find((robot) => robot.id === breath.attackerId);
+
+    if (time >= breath.expiresAt || !attacker?.alive) {
+      breaths.splice(index, 1);
+      continue;
+    }
+
+    if (time - breath.lastTickAt < DRAGON_BREATH_TICK_SECONDS) {
+      continue;
+    }
+
+    breath.lastTickAt = time;
+    const direction = { x: Math.cos(attacker.angle), y: Math.sin(attacker.angle) };
+    const endPosition = add(attacker.position, mul(direction, breath.weapon.range));
+    effects.push(
+      createEffect("cone", attacker.position, breath.weapon.radius + 28, time, attacker.palette.glow, {
+        endPosition,
+        weaponId: breath.weapon.id,
+      })
+    );
+
+    for (const robot of robots) {
+      if (!robot.alive || robot.id === attacker.id || robot.teamId === attacker.teamId) {
+        continue;
+      }
+
+      if (!isPointInCone(robot.position, attacker.position, direction, breath.weapon.range, Math.PI / 5)) {
+        continue;
+      }
+
+      applyDamage(
+        attacker,
+        robot,
+        {
+          ...breath.weapon,
+          damage: breath.weapon.damage * DRAGON_BREATH_TICK_SECONDS,
+          knockback: breath.weapon.knockback * DRAGON_BREATH_TICK_SECONDS,
+        },
+        time,
+        events,
+        damageByRobot,
+        effects,
+        direction
+      );
+      applyStatus(robot, "burning", time, {
+        sourceId: attacker.id,
+        weaponId: breath.weapon.id,
+        damagePerSecond: robot.maxHp * BURNING_DAMAGE_FRACTION,
+      });
+    }
+  }
+}
+
 function resolveObstacleCollisions(robots: RobotState[], obstacles: ObstacleState[]) {
   for (const obstacle of obstacles) {
     for (const robot of robots) {
@@ -1563,6 +1912,171 @@ function applyDamage(
       killerId: attacker.id,
       sound: "explosion",
     });
+  }
+}
+
+function applyStatus(
+  target: RobotState,
+  statusId: StatusEffectId,
+  time: number,
+  options: {
+    sourceId?: string;
+    weaponId?: WeaponId;
+    damagePerSecond?: number;
+  } = {}
+) {
+  const definition = statusDefinition(statusId, target);
+  const current = target.statuses[statusId];
+  target.statuses[statusId] = {
+    id: statusId,
+    sourceId: options.sourceId ?? current?.sourceId,
+    weaponId: options.weaponId ?? current?.weaponId,
+    startedAt: time,
+    expiresAt: time + definition.duration,
+    duration: definition.duration,
+    lastTickAt: current?.lastTickAt ?? time,
+    damagePerSecond: options.damagePerSecond ?? current?.damagePerSecond ?? definition.damagePerSecond,
+  };
+}
+
+function updateStatuses(
+  robots: RobotState[],
+  effects: EffectFrame[],
+  events: FightEvent[],
+  damageByRobot: Record<string, number>,
+  time: number
+) {
+  for (const robot of robots) {
+    if (!robot.alive) {
+      continue;
+    }
+
+    for (const statusId of Object.keys(robot.statuses) as StatusEffectId[]) {
+      const status = robot.statuses[statusId];
+      if (!status) {
+        continue;
+      }
+
+      if (time >= status.expiresAt) {
+        delete robot.statuses[statusId];
+        continue;
+      }
+
+      if (!status.damagePerSecond || time - status.lastTickAt < 1) {
+        continue;
+      }
+
+      const source = status.sourceId
+        ? robots.find((candidate) => candidate.id === status.sourceId)
+        : undefined;
+      const damage = Math.min(robot.hp, status.damagePerSecond);
+      status.lastTickAt = time;
+      robot.hp = Math.max(0, robot.hp - damage);
+      robot.lastDamagedAt = time;
+
+      if (source) {
+        source.damageDone += damage;
+        damageByRobot[source.id] += damage;
+      }
+
+      events.push({
+        type: "hit",
+        time,
+        attackerId: source?.id ?? robot.id,
+        targetId: robot.id,
+        weaponId: status.weaponId ?? "dragon-breath",
+        damage: Number(damage.toFixed(2)),
+        sound: status.id === "burning" ? "burning" : "impact",
+      });
+      addDamageToast(effects, robot.position, damage, time);
+      effects.push(createEffect("spark", robot.position, 18, time, statusDefinition(status.id, robot).color, {
+        weaponId: status.weaponId ?? "dragon-breath",
+      }));
+
+      if (robot.hp <= 0 && robot.alive) {
+        robot.alive = false;
+        effects.push(createEffect("explosion", robot.position, 170, time, robot.palette.glow, {
+          weaponId: status.weaponId ?? "dragon-breath",
+        }));
+        events.push({
+          type: "death",
+          time,
+          robotId: robot.id,
+          killerId: source?.id,
+          sound: "explosion",
+        });
+      }
+    }
+  }
+}
+
+function movementMultiplierFor(robot: RobotState): number {
+  if (hasActiveStatus(robot, "bramble")) {
+    return 0;
+  }
+
+  if (hasActiveStatus(robot, "frozen")) {
+    return FROZEN_MOVE_MULTIPLIER;
+  }
+
+  return 1;
+}
+
+function hasActiveStatus(robot: RobotState, statusId: StatusEffectId): boolean {
+  return Boolean(robot.statuses[statusId]);
+}
+
+function statusFrames(robot: RobotState, time: number): StatusFrame[] {
+  return (Object.keys(robot.statuses) as StatusEffectId[])
+    .map((statusId) => {
+      const status = robot.statuses[statusId];
+      if (!status || time >= status.expiresAt) {
+        return undefined;
+      }
+
+      const definition = statusDefinition(statusId, robot);
+      return {
+        id: statusId,
+        label: definition.label,
+        color: definition.color,
+        remaining: Number(Math.max(0, status.expiresAt - time).toFixed(2)),
+        duration: status.duration,
+      };
+    })
+    .filter((status): status is StatusFrame => status !== undefined);
+}
+
+function statusDefinition(
+  statusId: StatusEffectId,
+  robot: RobotState
+): { label: string; color: string; duration: number; damagePerSecond?: number } {
+  switch (statusId) {
+    case "burning":
+      return {
+        label: "Burning",
+        color: "#ff322e",
+        duration: BURNING_SECONDS,
+        damagePerSecond: robot.maxHp * BURNING_DAMAGE_FRACTION,
+      };
+    case "bramble":
+      return {
+        label: "Bramble",
+        color: "#164c25",
+        duration: BRAMBLE_SECONDS,
+      };
+    case "decay":
+      return {
+        label: "Decay",
+        color: "#8d9298",
+        duration: DECAY_SECONDS,
+        damagePerSecond: 6,
+      };
+    case "frozen":
+      return {
+        label: "Frozen",
+        color: "#9fe8ff",
+        duration: FROZEN_SECONDS,
+      };
   }
 }
 
@@ -1983,6 +2497,8 @@ function captureFrame(
   projectiles: ProjectileState[],
   effects: EffectFrame[],
   pendingStrikes: PendingStrike[],
+  pendingFlameLines: PendingFlameLine[],
+  activeBreaths: ActiveBreath[],
   bladeSwings: BladeSwingState[],
   mines: MineState[],
   hazards: HazardState[],
@@ -2029,6 +2545,43 @@ function captureFrame(
           radius: 14,
           age: Math.max(0, time - strike.createdAt),
           duration: strike.resolvesAt - strike.createdAt,
+          color: attacker.palette.glow,
+        };
+      })
+      .filter((effect): effect is EffectFrame => effect !== undefined),
+    ...pendingFlameLines.map((flameLine): EffectFrame => {
+      const attacker = robots.find((robot) => robot.id === flameLine.attackerId);
+      const resolved = time >= flameLine.resolvesAt;
+      return {
+        id: `${flameLine.id}-fx-${time}`,
+        type: resolved ? "beam" : "telegraph",
+        position: { ...flameLine.startPosition },
+        endPosition: { ...flameLine.endPosition },
+        weaponId: flameLine.weapon.id,
+        radius: resolved ? flameLine.weapon.radius : 18,
+        age: resolved ? time - flameLine.resolvesAt : time - flameLine.createdAt,
+        duration: resolved ? flameLine.expiresAt - flameLine.resolvesAt : flameLine.resolvesAt - flameLine.createdAt,
+        color: attacker?.palette.glow ?? "#ff7a22",
+        variant: resolved ? 1 : 0,
+      };
+    }),
+    ...activeBreaths
+      .map((breath): EffectFrame | undefined => {
+        const attacker = robots.find((robot) => robot.id === breath.attackerId);
+        if (!attacker || time > breath.expiresAt) {
+          return undefined;
+        }
+
+        const direction = { x: Math.cos(attacker.angle), y: Math.sin(attacker.angle) };
+        return {
+          id: `${breath.id}-fx-${time}`,
+          type: "cone",
+          position: { ...attacker.position },
+          endPosition: add(attacker.position, mul(direction, breath.weapon.range)),
+          weaponId: breath.weapon.id,
+          radius: breath.weapon.radius + 34,
+          age: time - breath.startedAt,
+          duration: breath.expiresAt - breath.startedAt,
           color: attacker.palette.glow,
         };
       })
@@ -2134,6 +2687,7 @@ function captureFrame(
       alive: robot.alive,
       lastMove: robot.lastMove,
       lastWeapon: robot.lastWeapon,
+      statuses: statusFrames(robot, time),
     })),
     projectiles: projectiles.map((projectile) => ({
       id: projectile.id,
@@ -2177,6 +2731,44 @@ function pointLineDistance(point: Vec2, start: Vec2, end: Vec2): number {
   };
 
   return distance(point, projection);
+}
+
+function pointInLineRectangle(point: Vec2, start: Vec2, end: Vec2, halfWidth: number): boolean {
+  const line = sub(end, start);
+  const lineLength = Math.hypot(line.x, line.y);
+
+  if (lineLength <= 0.001) {
+    return distance(point, start) <= halfWidth;
+  }
+
+  const axis = { x: line.x / lineLength, y: line.y / lineLength };
+  const toPoint = sub(point, start);
+  const along = toPoint.x * axis.x + toPoint.y * axis.y;
+  if (along < 0 || along > lineLength) {
+    return false;
+  }
+
+  const perpendicular = Math.abs(toPoint.x * -axis.y + toPoint.y * axis.x);
+  return perpendicular <= halfWidth;
+}
+
+function isPointInCone(
+  point: Vec2,
+  origin: Vec2,
+  direction: Vec2,
+  range: number,
+  halfAngle: number
+): boolean {
+  const toPoint = sub(point, origin);
+  const gap = Math.hypot(toPoint.x, toPoint.y);
+  if (gap > range + ROBOT_RADIUS || gap <= 0.001) {
+    return false;
+  }
+
+  const unit = normalize(toPoint);
+  const facing = normalize(direction);
+  const dot = clamp(unit.x * facing.x + unit.y * facing.y, -1, 1);
+  return Math.acos(dot) <= halfAngle;
 }
 
 function chooseWinnerByScore(robots: RobotState[]): string | undefined {

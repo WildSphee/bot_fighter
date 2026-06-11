@@ -75,6 +75,7 @@ async function recordReelRealtime(
   if (!context) {
     throw new Error("Canvas is not available for recording.");
   }
+  await soundEngine?.ready;
 
   recorder.ondataavailable = (event) => {
     if (event.data.size > 0) {

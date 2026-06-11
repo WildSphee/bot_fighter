@@ -20,6 +20,9 @@ const FIELD_GAP_TOP = 28;
 const FIELD_GAP_BOTTOM = 44;
 const ROBOT_RADIUS = 38;
 const HUD_SIDE_INSET = 56;
+// The top status bars sit a little further in from the edges than the action
+// bar, nudging the two robot panels slightly toward center.
+const TOP_BAR_SIDE_INSET = 96;
 // How long the movement slot / weapon list visibly spins after each pick before
 // locking onto the result. Matches the half-second display window in the brief.
 const SLOT_SPIN_SECONDS = 0.5;
@@ -179,13 +182,13 @@ function drawTopBar(
 function topSlots(robots: RobotFrame[], layout: Layout): Rect[] {
   if (robots.length <= 2) {
     return [
-      { x: HUD_SIDE_INSET, y: layout.topBar.y + 22, width: 300, height: 118 },
-      { x: layout.width - HUD_SIDE_INSET - 300, y: layout.topBar.y + 22, width: 300, height: 118 },
+      { x: TOP_BAR_SIDE_INSET, y: layout.topBar.y + 22, width: 300, height: 118 },
+      { x: layout.width - TOP_BAR_SIDE_INSET - 300, y: layout.topBar.y + 22, width: 300, height: 118 },
     ];
   }
 
   return robots.slice(0, 4).map((_, index) => ({
-    x: index % 2 === 0 ? HUD_SIDE_INSET : layout.width - HUD_SIDE_INSET - 270,
+    x: index % 2 === 0 ? TOP_BAR_SIDE_INSET : layout.width - TOP_BAR_SIDE_INSET - 270,
     y: layout.topBar.y + (index < 2 ? 18 : 88),
     width: 270,
     height: 64,
@@ -224,7 +227,27 @@ function drawTopRobotStatus(
   context.fillStyle = "#ffffff";
   context.font = "800 19px Inter, system-ui, sans-serif";
   context.fillText(`${Math.ceil(robot.hp)} / ${robot.maxHp} HP`, textX, rect.y + 56);
+  drawTopStatusLabels(context, robot, rect, alignRight);
   context.restore();
+}
+
+function drawTopStatusLabels(
+  context: CanvasRenderingContext2D,
+  robot: RobotFrame,
+  rect: Rect,
+  alignRight: boolean
+) {
+  if (robot.statuses.length === 0) {
+    return;
+  }
+
+  const text = robot.statuses
+    .map((status) => `${status.label} ${Math.ceil(status.remaining)}s`)
+    .join("  ");
+  context.textAlign = alignRight ? "right" : "left";
+  context.font = "800 15px Inter, system-ui, sans-serif";
+  context.fillStyle = robot.statuses[0]?.color ?? robot.palette.glow;
+  context.fillText(text, alignRight ? rect.x + rect.width : rect.x, rect.y + rect.height + 13, rect.width);
 }
 
 function drawArena(
@@ -300,7 +323,12 @@ function drawEffects(
 
     if (effect.type === "telegraph") {
       if (effect.endPosition) {
-        drawRailgunTelegraph(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena));
+        const end = mapPoint(effect.endPosition, arena, layout.arena);
+        if (effect.weaponId === "flame-line") {
+          drawFlameLineTelegraph(context, effect, position, end);
+        } else {
+          drawRailgunTelegraph(context, effect, position, end);
+        }
       } else {
         drawGroundTelegraph(context, effect, position, layout.arena.width / arena.width, alpha);
       }
@@ -308,12 +336,22 @@ function drawEffects(
     }
 
     if (effect.type === "beam" && effect.endPosition) {
-      drawBeamEffect(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena), alpha);
+      const end = mapPoint(effect.endPosition, arena, layout.arena);
+      if (effect.weaponId === "flame-line") {
+        drawFlamePillarLine(context, effect, position, end, alpha);
+      } else {
+        drawBeamEffect(context, effect, position, end, alpha);
+      }
       continue;
     }
 
     if (effect.type === "cone" && effect.endPosition) {
-      drawConeEffect(context, effect, position, mapPoint(effect.endPosition, arena, layout.arena), alpha);
+      const end = mapPoint(effect.endPosition, arena, layout.arena);
+      if (effect.weaponId === "dragon-breath") {
+        drawDragonBreathEffect(context, effect, position, end, alpha);
+      } else {
+        drawConeEffect(context, effect, position, end, alpha);
+      }
       continue;
     }
 
@@ -750,6 +788,113 @@ function drawRailgunTelegraph(
   context.restore();
 }
 
+function drawFlameLineTelegraph(
+  context: CanvasRenderingContext2D,
+  effect: { color: string; radius: number; age: number; duration: number },
+  start: Vec2,
+  end: Vec2
+) {
+  const progress = Math.min(1, effect.age / Math.max(0.001, effect.duration));
+  const pulse = 0.5 + 0.5 * Math.sin(effect.age * 18);
+  const direction = normalizeScreen(subScreen(end, start));
+  const side = { x: -direction.y, y: direction.x };
+  const halfWidth = effect.radius * (0.45 + progress * 0.55);
+
+  context.save();
+  context.globalAlpha = 0.16 + progress * 0.44;
+  context.fillStyle = colorWithAlpha(effect.color, 0.34);
+  context.strokeStyle = colorWithAlpha("#fff0c2", 0.82);
+  context.shadowBlur = 12 + progress * 20;
+  context.shadowColor = effect.color;
+  context.setLineDash([18, 14]);
+  context.lineDashOffset = -effect.age * 80;
+  context.lineWidth = 3 + pulse * 2;
+  context.beginPath();
+  context.moveTo(start.x + side.x * halfWidth, start.y + side.y * halfWidth);
+  context.lineTo(end.x + side.x * halfWidth, end.y + side.y * halfWidth);
+  context.lineTo(end.x - side.x * halfWidth, end.y - side.y * halfWidth);
+  context.lineTo(start.x - side.x * halfWidth, start.y - side.y * halfWidth);
+  context.closePath();
+  context.fill();
+  context.stroke();
+
+  context.setLineDash([]);
+  context.globalAlpha = 0.65 + progress * 0.2;
+  context.strokeStyle = effect.color;
+  context.lineWidth = 3;
+  context.beginPath();
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.stroke();
+  context.restore();
+}
+
+function drawFlamePillarLine(
+  context: CanvasRenderingContext2D,
+  effect: { color: string; radius: number; age: number; duration: number },
+  start: Vec2,
+  end: Vec2,
+  alpha: number
+) {
+  const direction = normalizeScreen(subScreen(end, start));
+  const side = { x: -direction.y, y: direction.x };
+  const length = distanceScreen(start, end);
+  const flames = 18;
+  const halfWidth = Math.max(26, effect.radius);
+
+  context.save();
+  context.globalAlpha = Math.max(0.35, alpha);
+  context.fillStyle = colorWithAlpha("#ff3b1f", 0.66);
+  context.strokeStyle = colorWithAlpha("#fff0c2", 0.74);
+  context.shadowBlur = 28;
+  context.shadowColor = effect.color;
+  context.lineWidth = 3;
+  context.beginPath();
+  context.moveTo(start.x + side.x * halfWidth, start.y + side.y * halfWidth);
+  context.lineTo(end.x + side.x * halfWidth, end.y + side.y * halfWidth);
+  context.lineTo(end.x - side.x * halfWidth, end.y - side.y * halfWidth);
+  context.lineTo(start.x - side.x * halfWidth, start.y - side.y * halfWidth);
+  context.closePath();
+  context.fill();
+  context.stroke();
+
+  context.strokeStyle = "#ffd36a";
+  context.lineWidth = Math.max(10, halfWidth * 0.24);
+  context.lineCap = "square";
+  context.beginPath();
+  context.moveTo(start.x, start.y);
+  context.lineTo(end.x, end.y);
+  context.stroke();
+
+  context.fillStyle = effect.color;
+  for (let index = 0; index < flames; index += 1) {
+    const t = (index + 0.5) / flames;
+    const wave = Math.sin(effect.age * 14 + index * 1.7);
+    const widthOffset = ((index % 5) / 4 - 0.5) * halfWidth * 1.35;
+    const center = {
+      x: start.x + direction.x * length * t + side.x * (widthOffset + wave * 9),
+      y: start.y + direction.y * length * t + side.y * (widthOffset + wave * 9),
+    };
+    const size = 18 + (index % 3) * 8 + Math.max(0, wave) * 10;
+    context.beginPath();
+    context.moveTo(center.x + side.x * size * 0.7, center.y + side.y * size * 0.7);
+    context.quadraticCurveTo(
+      center.x + direction.x * size * 0.55,
+      center.y + direction.y * size * 0.55,
+      center.x - side.x * size * 0.7,
+      center.y - side.y * size * 0.7
+    );
+    context.quadraticCurveTo(
+      center.x - direction.x * size * 1.45,
+      center.y - direction.y * size * 1.45,
+      center.x + side.x * size * 0.7,
+      center.y + side.y * size * 0.7
+    );
+    context.fill();
+  }
+  context.restore();
+}
+
 function drawGroundTelegraph(
   context: CanvasRenderingContext2D,
   effect: EffectFrame,
@@ -825,6 +970,95 @@ function drawConeEffect(
   context.closePath();
   context.fill();
   context.stroke();
+  context.restore();
+}
+
+function drawDragonBreathEffect(
+  context: CanvasRenderingContext2D,
+  effect: { color: string; radius: number; age: number; duration: number },
+  start: Vec2,
+  end: Vec2,
+  alpha: number
+) {
+  const direction = normalizeScreen(subScreen(end, start));
+  const side = { x: -direction.y, y: direction.x };
+  const length = Math.min(360, distanceScreen(start, end));
+  const flicker = 0.5 + 0.5 * Math.sin(effect.age * 22);
+  const tip = {
+    x: start.x + direction.x * length,
+    y: start.y + direction.y * length,
+  };
+  const mid = {
+    x: start.x + direction.x * length * 0.58,
+    y: start.y + direction.y * length * 0.58,
+  };
+  const baseWidth = Math.max(28, effect.radius * 0.22);
+  const midWidth = Math.max(58, effect.radius * 0.62 + flicker * 16);
+  const tipWidth = Math.max(30, effect.radius * 0.34);
+
+  context.save();
+  context.globalAlpha = Math.max(0.28, alpha * 0.92);
+  context.shadowBlur = 32;
+  context.shadowColor = effect.color;
+
+  const gradient = context.createLinearGradient(start.x, start.y, tip.x, tip.y);
+  gradient.addColorStop(0, colorWithAlpha("#fff5bb", 0.95));
+  gradient.addColorStop(0.28, colorWithAlpha("#ffb13b", 0.92));
+  gradient.addColorStop(0.72, colorWithAlpha("#ff321f", 0.74));
+  gradient.addColorStop(1, colorWithAlpha("#7b120c", 0.18));
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.moveTo(start.x + side.x * baseWidth, start.y + side.y * baseWidth);
+  context.bezierCurveTo(
+    mid.x + side.x * midWidth,
+    mid.y + side.y * midWidth,
+    tip.x + side.x * tipWidth,
+    tip.y + side.y * tipWidth,
+    tip.x,
+    tip.y
+  );
+  context.bezierCurveTo(
+    tip.x - side.x * tipWidth,
+    tip.y - side.y * tipWidth,
+    mid.x - side.x * midWidth,
+    mid.y - side.y * midWidth,
+    start.x - side.x * baseWidth,
+    start.y - side.y * baseWidth
+  );
+  context.closePath();
+  context.fill();
+
+  context.globalAlpha = Math.max(0.35, alpha);
+  context.strokeStyle = colorWithAlpha("#fff0c2", 0.74);
+  context.lineWidth = 4;
+  context.beginPath();
+  context.moveTo(start.x + side.x * baseWidth * 0.35, start.y + side.y * baseWidth * 0.35);
+  context.bezierCurveTo(
+    start.x + direction.x * length * 0.32 + side.x * (16 + flicker * 8),
+    start.y + direction.y * length * 0.32 + side.y * (16 + flicker * 8),
+    mid.x - side.x * 8,
+    mid.y - side.y * 8,
+    tip.x - direction.x * 18,
+    tip.y - direction.y * 18
+  );
+  context.stroke();
+
+  context.fillStyle = effect.color;
+  for (let index = 0; index < 16; index += 1) {
+    const t = ((index * 0.17 + effect.age * 0.95) % 1);
+    const width = (baseWidth + (midWidth - baseWidth) * Math.sin(t * Math.PI)) * 0.74;
+    const jitter = Math.sin(effect.age * 18 + index * 2.4) * width;
+    const center = {
+      x: start.x + direction.x * length * t + side.x * jitter,
+      y: start.y + direction.y * length * t + side.y * jitter,
+    };
+    const size = 5 + (1 - t) * 8 + (index % 3) * 2;
+    context.globalAlpha = Math.max(0, alpha * (1 - t * 0.65));
+    context.beginPath();
+    context.arc(center.x, center.y, size, 0, Math.PI * 2);
+    context.fill();
+  }
+
   context.restore();
 }
 
@@ -977,7 +1211,7 @@ function drawRobots(
     context.scale(1.2, 1.2);
     context.globalAlpha = robot.alive ? 1 : 0.38;
 
-    drawRobotBody(context, robot);
+    drawRobotBody(context, robot, frame.time);
 
     if (robot.shield > 1) {
       context.strokeStyle = robot.palette.glow;
@@ -989,15 +1223,23 @@ function drawRobots(
     }
 
     context.restore();
+
+    drawWorldStatusLabel(context, robot, position);
   }
 }
 
-function drawRobotBody(context: CanvasRenderingContext2D, robot: RobotFrame) {
+function drawRobotBody(context: CanvasRenderingContext2D, robot: RobotFrame, time: number) {
+  drawStatusAura(context, robot, time);
   context.shadowBlur = robot.alive ? 20 : 0;
   context.shadowColor = robot.palette.glow;
   context.fillStyle = robot.palette.body;
   context.strokeStyle = "#ffffff";
   context.lineWidth = 4;
+
+  if (robot.classId === "smaug") {
+    drawSmaugBody(context, robot, time);
+    return;
+  }
 
   if (robot.classId === "bulwark") {
     context.beginPath();
@@ -1114,6 +1356,201 @@ function drawRobotBody(context: CanvasRenderingContext2D, robot: RobotFrame) {
   context.fillStyle = "#f9fbff";
   context.fillRect(-23, -16, 12, 10);
   context.fillRect(-23, 6, 12, 10);
+}
+
+function drawSmaugBody(context: CanvasRenderingContext2D, robot: RobotFrame, time: number) {
+  const tailPoints = smaugTailLocalPoints(robot, time);
+
+  context.save();
+  context.lineCap = "round";
+  context.lineJoin = "round";
+  context.shadowBlur = 18;
+  context.shadowColor = robot.palette.glow;
+  for (let index = 0; index < tailPoints.length - 1; index += 1) {
+    const start = tailPoints[index];
+    const end = tailPoints[index + 1];
+    const t = index / (tailPoints.length - 2);
+    context.strokeStyle = index % 2 === 0 ? robot.palette.body : robot.palette.trim;
+    context.lineWidth = 29 - t * 20;
+    context.beginPath();
+    context.moveTo(start.x, start.y);
+    context.lineTo(end.x, end.y);
+    context.stroke();
+
+    context.strokeStyle = "#ffedc7";
+    context.lineWidth = Math.max(1.5, 4 - t * 2.2);
+    context.beginPath();
+    context.moveTo(start.x, start.y);
+    context.lineTo(end.x, end.y);
+    context.stroke();
+
+    context.fillStyle = index % 2 === 0 ? robot.palette.trim : robot.palette.body;
+    context.beginPath();
+    context.arc(end.x, end.y, Math.max(3.5, 8 - t * 4), 0, Math.PI * 2);
+    context.fill();
+  }
+
+  const tip = tailPoints[tailPoints.length - 1];
+  context.fillStyle = robot.palette.glow;
+  context.shadowBlur = 16;
+  context.beginPath();
+  context.arc(tip.x, tip.y, 6, 0, Math.PI * 2);
+  context.fill();
+  context.restore();
+
+  context.beginPath();
+  context.moveTo(47, 0);
+  context.lineTo(22, -35);
+  context.lineTo(-31, -31);
+  context.lineTo(-42, -6);
+  context.lineTo(-35, 30);
+  context.lineTo(20, 36);
+  context.closePath();
+  context.fill();
+  context.stroke();
+
+  context.shadowBlur = 0;
+  context.fillStyle = robot.palette.trim;
+  context.beginPath();
+  context.roundRect(-14, -25, 32, 50, 8);
+  context.fill();
+
+  context.fillStyle = robot.palette.glow;
+  context.beginPath();
+  context.moveTo(26, -18);
+  context.lineTo(54, 0);
+  context.lineTo(26, 18);
+  context.closePath();
+  context.fill();
+
+  context.strokeStyle = robot.palette.glow;
+  context.lineWidth = 4;
+  for (const y of [-28, 28]) {
+    context.beginPath();
+    context.moveTo(-10, y * 0.6);
+    context.lineTo(-30, y);
+    context.lineTo(-5, y * 0.85);
+    context.stroke();
+  }
+
+  context.fillStyle = "#fff9ec";
+  context.fillRect(-26, -15, 10, 9);
+  context.fillRect(-26, 6, 10, 9);
+}
+
+function smaugTailLocalPoints(robot: RobotFrame, time: number): Vec2[] {
+  const speed = Math.hypot(robot.velocity.x, robot.velocity.y);
+  const localSide =
+    speed > 1
+      ? (-Math.sin(robot.angle) * robot.velocity.x + Math.cos(robot.angle) * robot.velocity.y) / speed
+      : 0;
+  const tailTarget =
+    Math.sin(time * 2.1 + robot.id.length * 0.37) * 0.34 - localSide * 0.16;
+  const length = 98;
+  const segments = 7;
+  const points: Vec2[] = [];
+  let point = { x: -25, y: 0 };
+  points.push(point);
+
+  for (let index = 1; index <= segments; index += 1) {
+    const t = index / segments;
+    const dragAngle = tailTarget * Math.pow(t, 1.55);
+    const breathingOffset = Math.sin(time * 1.05 + t * Math.PI * 1.6) * 0.025 * t;
+    point = {
+      x: point.x - Math.cos(dragAngle + breathingOffset) * (length / segments),
+      y: point.y - Math.sin(dragAngle + breathingOffset) * (length / segments),
+    };
+    points.push(point);
+  }
+
+  return points;
+}
+
+function drawStatusAura(context: CanvasRenderingContext2D, robot: RobotFrame, time: number) {
+  if (robot.statuses.length === 0) {
+    return;
+  }
+
+  for (const status of robot.statuses) {
+    context.save();
+    context.globalAlpha = 0.55;
+    context.strokeStyle = status.color;
+    context.fillStyle = status.color;
+    context.shadowBlur = 14;
+    context.shadowColor = status.color;
+
+    if (status.id === "burning") {
+      for (let index = 0; index < 9; index += 1) {
+        const angle = time * 5 + index * 0.72;
+        const radius = 26 + (index % 3) * 8;
+        const x = Math.cos(angle) * radius;
+        const y = Math.sin(angle) * radius - 10 - ((time * 34 + index * 11) % 24);
+        context.beginPath();
+        context.arc(x, y, 4 + (index % 3), 0, Math.PI * 2);
+        context.fill();
+      }
+    } else if (status.id === "bramble") {
+      context.lineWidth = 5;
+      context.beginPath();
+      context.arc(0, 0, 42, -0.4 + time, Math.PI * 1.15 + time);
+      context.arc(0, 0, 31, Math.PI * 0.35 - time, Math.PI * 1.75 - time);
+      context.stroke();
+      for (let index = 0; index < 6; index += 1) {
+        const angle = index * 1.05 + time * 0.3;
+        context.beginPath();
+        context.moveTo(Math.cos(angle) * 22, Math.sin(angle) * 22);
+        context.lineTo(Math.cos(angle) * 45, Math.sin(angle) * 45);
+        context.stroke();
+      }
+    } else if (status.id === "decay") {
+      context.globalAlpha = 0.38;
+      for (let index = 0; index < 7; index += 1) {
+        const angle = index * 0.9 + time * 1.6;
+        const radius = 20 + ((index * 13) % 24);
+        context.beginPath();
+        context.arc(Math.cos(angle) * radius, Math.sin(angle) * radius, 8 + (index % 3) * 3, 0, Math.PI * 2);
+        context.fill();
+      }
+    } else if (status.id === "frozen") {
+      context.globalAlpha = 0.68;
+      context.strokeStyle = "#e8fbff";
+      context.lineWidth = 3;
+      for (let index = 0; index < 5; index += 1) {
+        const angle = index * 1.25 + time * 0.25;
+        const x = Math.cos(angle) * 38;
+        const y = Math.sin(angle) * 38;
+        context.save();
+        context.translate(x, y);
+        context.rotate(angle);
+        context.strokeRect(-6, -6, 12, 12);
+        context.restore();
+      }
+    }
+
+    context.restore();
+  }
+}
+
+function drawWorldStatusLabel(
+  context: CanvasRenderingContext2D,
+  robot: RobotFrame,
+  position: Vec2
+) {
+  if (robot.statuses.length === 0) {
+    return;
+  }
+
+  const status = robot.statuses[0];
+  context.save();
+  context.textAlign = "center";
+  context.font = "900 17px Inter, system-ui, sans-serif";
+  context.lineWidth = 5;
+  context.strokeStyle = "rgba(7, 12, 17, 0.85)";
+  context.fillStyle = status.color;
+  const text = status.label.toUpperCase();
+  context.strokeText(text, position.x, position.y + 66);
+  context.fillText(text, position.x, position.y + 66);
+  context.restore();
 }
 
 function drawDruidLeaves(
@@ -1567,6 +2004,10 @@ function fallbackWeaponColor(weaponId: WeaponId): string {
       return "#d9a441";
     case "transmutation-circle":
       return "#ffe08a";
+    case "flame-line":
+      return "#ff6b1f";
+    case "dragon-breath":
+      return "#ff2f1f";
     case "shotgun":
       return "#ffd166";
     case "shield":
@@ -1805,15 +2246,38 @@ function drawWeaponIcon(
       context.arc(0, 0, 22, 0, Math.PI * 2);
       context.stroke();
       context.beginPath();
-      context.moveTo(0, -22);
-      context.lineTo(19, 11);
-      context.lineTo(-19, 11);
-      context.closePath();
+      context.moveTo(-12, -11);
+      context.lineTo(14, 15);
+      context.moveTo(14, -11);
+      context.lineTo(-12, 15);
       context.stroke();
-      context.fillStyle = color;
+      break;
+    case "flame-line":
+      context.lineWidth = 7;
+      context.strokeStyle = accent;
       context.beginPath();
-      context.arc(0, 0, 5, 0, Math.PI * 2);
+      context.moveTo(-24, 12);
+      context.lineTo(24, -12);
+      context.stroke();
+      context.lineWidth = 3;
+      context.strokeStyle = "#fff0c2";
+      context.beginPath();
+      context.moveTo(-20, 8);
+      context.lineTo(20, -16);
+      context.stroke();
+      break;
+    case "dragon-breath":
+      context.fillStyle = accent;
+      context.beginPath();
+      context.moveTo(-22, 18);
+      context.quadraticCurveTo(0, -28, 22, -5);
+      context.quadraticCurveTo(8, -2, 17, 22);
+      context.quadraticCurveTo(1, 10, -9, 24);
+      context.quadraticCurveTo(-9, 7, -22, 18);
       context.fill();
+      context.strokeStyle = "#fff0c2";
+      context.lineWidth = 3;
+      context.stroke();
       break;
   }
 

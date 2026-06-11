@@ -176,6 +176,7 @@ async function renderAudioTrack(result: FightResult): Promise<AudioBuffer> {
     context: offline as unknown as AudioContext,
     destination: offline.destination,
   });
+  await engine.ready;
 
   for (const event of result.events) {
     if ("sound" in event) {
