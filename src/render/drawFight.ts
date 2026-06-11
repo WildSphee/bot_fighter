@@ -1907,34 +1907,115 @@ function drawWinnerCard(
   }
 
   const winner = frame.robots.find((robot) => robot.id === winnerEvent.winnerId);
+  const centerY = layout.arena.y + layout.arena.height * 0.46;
+
   context.save();
-  context.fillStyle = "rgba(7, 12, 17, 0.8)";
-  context.fillRect(0, layout.arena.y + layout.arena.height * 0.35, layout.width, 270);
+  context.fillStyle = "rgba(58, 63, 68, 0.42)";
+  context.fillRect(0, 0, layout.width, layout.height);
   context.textAlign = "center";
-  context.fillStyle = "#ffdd78";
   context.font = "900 72px Inter, system-ui, sans-serif";
-  context.fillText("WINNER", layout.width / 2, layout.arena.y + layout.arena.height * 0.35 + 105);
-  context.fillStyle = "#ffffff";
+  drawOutlinedText(context, "WINNER", layout.width / 2, centerY - 34, "#ffdd78", 10);
   context.font = "800 56px Inter, system-ui, sans-serif";
-  context.fillText(winner ? getClassName(winner.classId) : "Draw", layout.width / 2, layout.arena.y + layout.arena.height * 0.35 + 178);
+  drawOutlinedText(context, winner ? getClassName(winner.classId) : "Draw", layout.width / 2, centerY + 48, "#ffffff", 8);
   context.restore();
 }
 
 export function drawIntroCard(context: CanvasRenderingContext2D, names: string[]) {
   const layout = createLayout(context, names.length);
-  const bandY = layout.arena.y + layout.arena.height * 0.35;
+  const maxTextWidth = layout.width - 96;
 
   context.save();
-  context.fillStyle = "rgba(7, 12, 17, 0.8)";
-  context.fillRect(0, bandY, layout.width, 270);
   context.textAlign = "center";
+  context.font = names.length > 2 ? "900 44px Inter, system-ui, sans-serif" : "900 58px Inter, system-ui, sans-serif";
+  const matchupLines = introMatchupLines(context, names, maxTextWidth);
+  const lineHeight = names.length > 2 ? 52 : 66;
+  const bandHeight = Math.max(270, 148 + matchupLines.length * lineHeight);
+  const bandY = Math.max(
+    layout.topBar.y + layout.topBar.height + 36,
+    layout.arena.y + layout.arena.height * 0.5 - bandHeight / 2
+  );
+  const firstLineY = bandY + 84;
+
+  context.fillStyle = "rgba(7, 12, 17, 0.8)";
+  context.fillRect(0, bandY, layout.width, bandHeight);
   context.fillStyle = "#ffffff";
-  context.font = "900 58px Inter, system-ui, sans-serif";
-  context.fillText(names.join("  vs  "), layout.width / 2, bandY + 105);
+  matchupLines.forEach((line, index) => {
+    fillBoundedText(context, line, layout.width / 2, firstLineY + index * lineHeight, maxTextWidth, names.length > 2 ? 34 : 42);
+  });
   context.fillStyle = "#ffdd78";
   context.font = "800 46px Inter, system-ui, sans-serif";
-  context.fillText("WHO WILL WIN?", layout.width / 2, bandY + 178);
+  fillBoundedText(context, "WHO WILL WIN?", layout.width / 2, firstLineY + matchupLines.length * lineHeight + 48, maxTextWidth, 34);
   context.restore();
+}
+
+function drawOutlinedText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  fillStyle: string,
+  strokeWidth: number
+) {
+  context.save();
+  context.shadowBlur = 26;
+  context.shadowColor = "rgba(0, 0, 0, 0.72)";
+  context.lineJoin = "round";
+  context.lineWidth = strokeWidth;
+  context.strokeStyle = "rgba(7, 12, 17, 0.78)";
+  context.strokeText(text, x, y);
+  context.fillStyle = fillStyle;
+  context.fillText(text, x, y);
+  context.restore();
+}
+
+function introMatchupLines(context: CanvasRenderingContext2D, names: string[], maxWidth: number): string[] {
+  const directLine = names.join("  vs  ");
+  if (names.length <= 2) {
+    return [directLine];
+  }
+
+  const lines: string[] = [];
+  for (let index = 0; index < names.length; index += 2) {
+    const pairLine = names[index + 1] ? `${names[index]}  vs  ${names[index + 1]}` : names[index];
+    if (context.measureText(pairLine).width <= maxWidth) {
+      lines.push(pairLine);
+      continue;
+    }
+
+    lines.push(names[index]);
+    if (names[index + 1]) {
+      lines.push(`vs  ${names[index + 1]}`);
+    }
+  }
+
+  return lines;
+}
+
+function fillBoundedText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  minFontSize: number
+) {
+  const font = context.font;
+  const match = font.match(/^(.*?)(\d+(?:\.\d+)?)px\s+(.+)$/);
+  if (!match || context.measureText(text).width <= maxWidth) {
+    context.fillText(text, x, y, maxWidth);
+    return;
+  }
+
+  const fontPrefix = match[1];
+  const fontSize = Number.parseFloat(match[2]);
+  const fontFamily = match[3];
+  let fittedSize = fontSize;
+  while (fittedSize > minFontSize && context.measureText(text).width > maxWidth) {
+    fittedSize -= 2;
+    context.font = `${fontPrefix}${fittedSize}px ${fontFamily}`;
+  }
+  context.fillText(text, x, y, maxWidth);
+  context.font = font;
 }
 
 // How long the "class vs class" intro card sits at the head of an exported reel.
