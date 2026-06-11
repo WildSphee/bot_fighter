@@ -125,7 +125,10 @@ const RAILGUN_CHARGE_SECONDS = 1;
 const RAILGUN_RESOLVE_SECONDS = 0.3;
 const RAILGUN_PAUSE_BUFFER = 0.5;
 const BLADE_HOLD_SECONDS = 1;
-const BLADE_SWING_SECONDS = 0.41;
+// Swing twice as fast as before, then leave the blade hanging in its finished
+// pose for a moment before it fades out.
+const BLADE_SWING_SECONDS = 0.205;
+const BLADE_LINGER_SECONDS = 0.5;
 const BLAST_RIFLE_SHOT_INTERVAL = 0.04;
 const SHIELD_REGEN_DELAY_SECONDS = 2;
 
@@ -693,7 +696,7 @@ function fireWeapon(input: {
       weapon,
       startedAt: time,
       swingStartAt: time + BLADE_HOLD_SECONDS,
-      expiresAt: time + BLADE_HOLD_SECONDS + BLADE_SWING_SECONDS,
+      expiresAt: time + BLADE_HOLD_SECONDS + BLADE_SWING_SECONDS + BLADE_LINGER_SECONDS,
       hitRobotIds: new Set(),
     });
     return true;
@@ -747,10 +750,12 @@ function fireWeapon(input: {
   }
 
   if (weapon.id === "shotgun") {
-    const pelletCount = 5;
+    const pelletCount = 7;
+    // Keep the original total cone width (was 5 pellets * 8.5° steps = 34°).
+    const spreadStepDeg = 34 / (pelletCount - 1);
     applyShooterKnockback(attacker, direction, weapon);
     for (let index = 0; index < pelletCount; index += 1) {
-      const spread = ((index - (pelletCount - 1) / 2) * 8.5 * Math.PI) / 180;
+      const spread = ((index - (pelletCount - 1) / 2) * spreadStepDeg * Math.PI) / 180;
       const pelletDirection = rotateVector(direction, spread);
       projectiles.push({
         id: `shotgun-${attacker.id}-${time.toFixed(2)}-${index}`,
@@ -758,7 +763,8 @@ function fireWeapon(input: {
         targetId: target.id,
         weaponId: weapon.id,
         position: add(attacker.position, mul(pelletDirection, ROBOT_RADIUS + 12)),
-        velocity: mul(pelletDirection, 620 + index * 18),
+        // 2x pellet speed; shorter lifetime so total travel only grows ~20%.
+        velocity: mul(pelletDirection, 2 * (620 + index * 18)),
         damage: weapon.damage / pelletCount,
         radius: 8,
         homing: 0,
@@ -766,7 +772,7 @@ function fireWeapon(input: {
         curve: 0,
         lastTrailAt: time,
         age: 0,
-        expiresAt: time + 0.48,
+        expiresAt: time + 0.288,
         acceleration: 0,
         explosive: false,
         explosionRadius: 0,
@@ -1006,6 +1012,13 @@ function updateProjectiles(
     if (time >= projectile.expiresAt) {
       if (projectile.explosive) {
         detonateRocket(projectile, owner, robots, effects, events, damageByRobot, time);
+      } else if (projectile.weaponId === "missile") {
+        // Small flare puff when a homing missile burns out without a hit.
+        effects.push(
+          createEffect("muzzle", projectile.position, projectile.radius + 10, time, "#ff8f4f", {
+            weaponId: "missile",
+          })
+        );
       }
       projectiles.splice(index, 1);
     }
@@ -1346,6 +1359,12 @@ function updateBladeSwings(
       continue;
     }
 
+    // Once the swing finishes the blade only lingers visually — stop dealing
+    // damage and deflecting projectiles during that tail.
+    if (time > swing.swingStartAt + BLADE_SWING_SECONDS) {
+      continue;
+    }
+
     const bladeReach = swing.weapon.range;
     for (let projectileIndex = projectiles.length - 1; projectileIndex >= 0; projectileIndex -= 1) {
       const projectile = projectiles[projectileIndex];
@@ -1525,7 +1544,7 @@ function createEffect(
     muzzle: 0.22,
     shield: 0.38,
     spark: 0.28,
-    blade: BLADE_HOLD_SECONDS + BLADE_SWING_SECONDS,
+    blade: BLADE_HOLD_SECONDS + BLADE_SWING_SECONDS + BLADE_LINGER_SECONDS,
     "damage-text": 0.5,
     telegraph: 0.5,
     trail: 0.34,

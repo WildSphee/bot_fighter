@@ -500,7 +500,7 @@ function drawBladeEffect(
   context.save();
   context.translate(position.x, position.y);
   context.rotate(angle);
-  context.globalAlpha = holding ? 0.7 : Math.max(0.25, alpha);
+  context.globalAlpha = holding ? 0.9 : Math.max(0.55, alpha);
   context.lineCap = "round";
   context.lineJoin = "round";
   context.shadowBlur = holding ? 18 : 30;
