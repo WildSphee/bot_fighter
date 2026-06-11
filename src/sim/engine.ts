@@ -489,8 +489,8 @@ function resolveRobotCollisions(
           const contact = add(left.position, mul(normal, ROBOT_RADIUS));
           const leftImpact = Number.isFinite(leftClass.impactDamage) ? leftClass.impactDamage : 0;
           const rightImpact = Number.isFinite(rightClass.impactDamage) ? rightClass.impactDamage : 0;
-          applyCollisionDamage(right, left, leftImpact, time, events, damageByRobot, effects);
-          applyCollisionDamage(left, right, rightImpact, time, events, damageByRobot, effects);
+          applyCollisionDamage(left, right, leftImpact, time, events, damageByRobot, effects);
+          applyCollisionDamage(right, left, rightImpact, time, events, damageByRobot, effects);
           effects.push(createEffect("spark", contact, 30, time, "#fff4cf"));
           left.lastCollisionAt = time;
           right.lastCollisionAt = time;

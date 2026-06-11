@@ -36,6 +36,44 @@ describe("simulateFight", () => {
     expect(result.events.some((event) => event.type === "winner")).toBe(true);
   });
 
+  it("assigns collision impact damage to the bot dealing the hit", () => {
+    const config = createDefaultFightConfig("impact-damage-dealt");
+    config.maxDuration = 2;
+    config.centerGravity = 1;
+    config.arena = {
+      ...config.arena,
+      width: 180,
+      height: 180,
+      drag: 0.98,
+    };
+    config.movementProfiles = {
+      ...config.movementProfiles,
+      balanced: [{ id: "boost", weight: 1 }],
+    };
+    config.classes = config.classes.map((robotClass, index) => ({
+      ...robotClass,
+      hp: 500,
+      shield: 0,
+      armor: 0,
+      speed: 80,
+      arsenal: [],
+      movementProfile: "balanced",
+      impactDamage: index === 0 ? 80 : 0,
+    }));
+    config.robots = config.robots.map((robot, index) => ({
+      ...robot,
+      classId: config.classes[index].id,
+      arsenal: [],
+      weaponDice: [],
+      movementDice: [{ id: "boost", weight: 1 }],
+    }));
+
+    const result = simulateFight(config);
+
+    expect(result.damageByRobot[config.robots[0].id]).toBeGreaterThan(0);
+    expect(result.damageByRobot[config.robots[1].id]).toBe(0);
+  });
+
   it("creates a drawable visual for every weapon", () => {
     const expectedVisuals: Record<WeaponId, Array<EffectFrame["type"] | "projectile">> = {
       ray: ["beam"],

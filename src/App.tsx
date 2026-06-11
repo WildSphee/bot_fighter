@@ -68,6 +68,24 @@ type GameSettings = {
   centerGravity: number;
 };
 
+type HealthChartPoint = {
+  time: number;
+  hpPercent: number;
+};
+
+type HealthChartSeries = {
+  robotId: string;
+  name: string;
+  color: string;
+  points: HealthChartPoint[];
+};
+
+type UnderdogScore = {
+  value: number;
+  firstArea: number;
+  secondArea: number;
+};
+
 const DEFAULT_SETTINGS: GameSettings = {
   moveInterval: 1,
   weaponInterval: 2,
@@ -167,6 +185,9 @@ export default function App() {
   const frame = result.frames[Math.min(frameIndex, result.frames.length - 1)] ?? result.frames[0];
   const finalFrame = result.frames[result.frames.length - 1] ?? result.frames[0];
   const winner = result.config.robots.find((robot) => robot.id === result.winnerId);
+  const matchDuration = getMatchDuration(result);
+  const healthChartSeries = useMemo(() => buildHealthChartSeries(result, matchDuration), [matchDuration, result]);
+  const underdogScore = useMemo(() => calculateUnderdogScore(result, matchDuration), [matchDuration, result]);
   const recentEvents = result.events
     .filter((event) => event.type === "hit")
     .slice(-8)
@@ -675,7 +696,7 @@ export default function App() {
                       />
                     </label>
                     <label className="field">
-                      <span>Impact Damage Taken</span>
+                      <span>Impact Damage Dealt</span>
                       <input
                         type="number"
                         min={0}
@@ -980,7 +1001,13 @@ export default function App() {
         <aside className="telemetry" aria-label="Fight telemetry">
           <section className="score-band">
             <span>Winner</span>
-            <strong>{winner ? getClassName(winner.classId, classes) : "Draw"}</strong>
+            <div className="score-band__headline">
+              <strong>{winner ? getClassName(winner.classId, classes) : "Draw"}</strong>
+              <em title={`HP-area score: ${underdogScore.secondArea.toFixed(0)} vs ${underdogScore.firstArea.toFixed(0)}`}>
+                {formatScore(underdogScore.value)}
+              </em>
+              <time>{matchDuration.toFixed(1)}s</time>
+            </div>
             <small>{result.events.find((event) => event.type === "winner")?.reason ?? "pending"}</small>
           </section>
 
@@ -994,6 +1021,13 @@ export default function App() {
               </div>
             ))}
           </section>
+
+          <HealthTimelineChart
+            currentTime={Math.min(frame.time, matchDuration)}
+            duration={matchDuration}
+            frame={frame}
+            series={healthChartSeries}
+          />
 
           <section className="stat-grid">
             {syncedRobots.map((robot) => {
@@ -1014,6 +1048,91 @@ export default function App() {
         </aside>
       </section>
     </main>
+  );
+}
+
+function HealthTimelineChart({
+  currentTime,
+  duration,
+  frame,
+  series,
+}: {
+  currentTime: number;
+  duration: number;
+  frame: FightResult["frames"][number];
+  series: HealthChartSeries[];
+}) {
+  const chartWidth = 320;
+  const chartHeight = 128;
+  const plotLeft = 34;
+  const plotRight = 12;
+  const plotTop = 12;
+  const plotBottom = 24;
+  const plotWidth = chartWidth - plotLeft - plotRight;
+  const plotHeight = chartHeight - plotTop - plotBottom;
+  const safeDuration = Math.max(0.001, duration);
+  const currentX = plotLeft + (Math.min(currentTime, safeDuration) / safeDuration) * plotWidth;
+
+  return (
+    <section className="health-chart">
+      <div className="health-chart__header">
+        <h2>HP Remaining</h2>
+        <span>{duration.toFixed(1)}s</span>
+      </div>
+      <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label="HP remaining over time">
+        {[0, 50, 100].map((mark) => {
+          const y = plotTop + ((100 - mark) / 100) * plotHeight;
+          return (
+            <g key={mark}>
+              <line className="health-chart__grid" x1={plotLeft} x2={chartWidth - plotRight} y1={y} y2={y} />
+              <text className="health-chart__tick" x={4} y={y + 4}>
+                {mark}%
+              </text>
+            </g>
+          );
+        })}
+        <line
+          className="health-chart__cursor"
+          x1={currentX}
+          x2={currentX}
+          y1={plotTop}
+          y2={plotTop + plotHeight}
+        />
+        {series.map((robotSeries) => (
+          <polyline
+            className="health-chart__line"
+            key={robotSeries.robotId}
+            points={robotSeries.points
+              .map((point) => {
+                const x = plotLeft + (point.time / safeDuration) * plotWidth;
+                const y = plotTop + ((100 - point.hpPercent) / 100) * plotHeight;
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+              })
+              .join(" ")}
+            stroke={robotSeries.color}
+          />
+        ))}
+        <line
+          className="health-chart__axis"
+          x1={plotLeft}
+          x2={chartWidth - plotRight}
+          y1={plotTop + plotHeight}
+          y2={plotTop + plotHeight}
+        />
+      </svg>
+      <div className="health-chart__legend">
+        {series.map((robotSeries) => {
+          const robotFrame = frame.robots.find((robot) => robot.id === robotSeries.robotId);
+          const hpPercent = robotFrame ? hpPercentFor(robotFrame.hp, robotFrame.maxHp) : 0;
+          return (
+            <span key={robotSeries.robotId}>
+              <i style={{ background: robotSeries.color }} />
+              {robotSeries.name} {Math.round(hpPercent)}%
+            </span>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1093,6 +1212,111 @@ function summarizeResult(result: FightResult) {
     damageByRobot: result.damageByRobot,
     events: result.events,
   };
+}
+
+function getMatchDuration(result: FightResult): number {
+  return result.events.find((event) => event.type === "winner")?.time ?? result.duration;
+}
+
+function buildHealthChartSeries(result: FightResult, duration: number): HealthChartSeries[] {
+  const sampledFrames = sampleFrames(result.frames.filter((frame) => frame.time <= duration + 0.0001));
+  return result.config.robots.map((robot) => ({
+    robotId: robot.id,
+    name: getClassName(robot.classId, result.config.classes),
+    color: robot.palette.glow || robot.palette.body,
+    points: sampledFrames.map((frame) => {
+      const robotFrame = frame.robots.find((candidate) => candidate.id === robot.id);
+      return {
+        time: Math.min(frame.time, duration),
+        hpPercent: robotFrame ? hpPercentFor(robotFrame.hp, robotFrame.maxHp) : 0,
+      };
+    }),
+  }));
+}
+
+function sampleFrames(frames: FightResult["frames"]): FightResult["frames"] {
+  const maxPoints = 140;
+  if (frames.length <= maxPoints) {
+    return frames;
+  }
+
+  const sampled: FightResult["frames"] = [];
+  const step = (frames.length - 1) / (maxPoints - 1);
+  for (let index = 0; index < maxPoints; index += 1) {
+    const frame = frames[Math.round(index * step)];
+    if (frame && sampled[sampled.length - 1]?.time !== frame.time) {
+      sampled.push(frame);
+    }
+  }
+  return sampled;
+}
+
+function calculateUnderdogScore(result: FightResult, duration: number): UnderdogScore {
+  const areas = calculateHealthAreas(result, duration);
+  const finalFrame =
+    [...result.frames].reverse().find((frame) => frame.time <= duration + 0.0001) ??
+    result.frames[result.frames.length - 1];
+  const rankedRobots = [...result.config.robots].sort((left, right) => {
+    if (left.id === result.winnerId) {
+      return -1;
+    }
+    if (right.id === result.winnerId) {
+      return 1;
+    }
+
+    const leftFrame = finalFrame?.robots.find((robot) => robot.id === left.id);
+    const rightFrame = finalFrame?.robots.find((robot) => robot.id === right.id);
+    const hpDelta = (rightFrame?.hp ?? 0) - (leftFrame?.hp ?? 0);
+    if (hpDelta !== 0) {
+      return hpDelta;
+    }
+    return (result.damageByRobot[right.id] ?? 0) - (result.damageByRobot[left.id] ?? 0);
+  });
+
+  const firstArea = areas[rankedRobots[0]?.id ?? ""] ?? 0;
+  const secondArea = areas[rankedRobots[1]?.id ?? ""] ?? 0;
+  const rawScore = firstArea > 0 ? ((secondArea - firstArea) / firstArea) * 100 : 0;
+  return {
+    value: Math.max(-100, Math.min(100, rawScore)),
+    firstArea,
+    secondArea,
+  };
+}
+
+function calculateHealthAreas(result: FightResult, duration: number): Record<string, number> {
+  const areas = Object.fromEntries(result.config.robots.map((robot) => [robot.id, 0]));
+  const safeDuration = Math.max(0, duration);
+
+  for (let index = 1; index < result.frames.length; index += 1) {
+    const previousFrame = result.frames[index - 1];
+    const currentFrame = result.frames[index];
+    const startTime = Math.min(previousFrame.time, safeDuration);
+    const endTime = Math.min(currentFrame.time, safeDuration);
+    const deltaTime = endTime - startTime;
+
+    if (deltaTime <= 0) {
+      continue;
+    }
+
+    for (const robot of result.config.robots) {
+      const previousRobot = previousFrame.robots.find((candidate) => candidate.id === robot.id);
+      const currentRobot = currentFrame.robots.find((candidate) => candidate.id === robot.id);
+      const previousHp = previousRobot ? hpPercentFor(previousRobot.hp, previousRobot.maxHp) : 0;
+      const currentHp = currentRobot ? hpPercentFor(currentRobot.hp, currentRobot.maxHp) : 0;
+      areas[robot.id] += ((previousHp + currentHp) / 2) * deltaTime;
+    }
+  }
+
+  return areas;
+}
+
+function hpPercentFor(hp: number, maxHp: number): number {
+  return Math.max(0, Math.min(100, (hp / Math.max(1, maxHp)) * 100));
+}
+
+function formatScore(score: number): string {
+  const rounded = Math.round(score);
+  return `${rounded > 0 ? "+" : ""}${rounded}`;
 }
 
 function formatEvent(event: FightResult["events"][number], config: FightConfig): string {

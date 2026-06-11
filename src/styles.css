@@ -78,7 +78,7 @@ button {
 .lab-grid {
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(420px, 560px) minmax(320px, 1fr) minmax(240px, 300px);
+  grid-template-columns: minmax(400px, 540px) minmax(320px, 1fr) minmax(320px, 400px);
   min-height: calc(100vh - 96px);
   padding: 0 26px 26px;
 }
@@ -180,6 +180,7 @@ button {
 .metric-panel,
 .score-band,
 .event-feed,
+.health-chart,
 .stat-box,
 .soundtrack-panel {
   background: #fffaf0;
@@ -424,12 +425,43 @@ button {
   padding: 12px;
 }
 
+.score-band__headline {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
 .score-band strong,
 .metric-panel strong,
 .stat-box strong {
   color: #1d2730;
   font-size: 24px;
   line-height: 1.05;
+}
+
+.score-band__headline strong {
+  overflow-wrap: anywhere;
+}
+
+.score-band__headline em {
+  background: #202b35;
+  border-radius: 6px;
+  color: #ffdd78;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 900;
+  min-width: 42px;
+  padding: 6px 7px;
+  text-align: center;
+}
+
+.score-band__headline time {
+  color: #187b70;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .score-band small,
@@ -466,6 +498,92 @@ button {
   font-size: 13px;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.health-chart {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.health-chart__header {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.health-chart__header h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.health-chart__header span {
+  color: #187b70;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.health-chart svg {
+  display: block;
+  width: 100%;
+}
+
+.health-chart__grid {
+  stroke: rgba(42, 48, 54, 0.12);
+  stroke-width: 1;
+}
+
+.health-chart__axis {
+  stroke: rgba(42, 48, 54, 0.24);
+  stroke-width: 1.5;
+}
+
+.health-chart__cursor {
+  stroke: #7f2f45;
+  stroke-dasharray: 4 4;
+  stroke-width: 1.5;
+}
+
+.health-chart__line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.health-chart__tick {
+  fill: #66717a;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.health-chart__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.health-chart__legend span {
+  align-items: center;
+  background: rgba(32, 43, 53, 0.06);
+  border-radius: 6px;
+  color: #24303a;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 900;
+  gap: 5px;
+  min-width: 0;
+  padding: 5px 7px;
+}
+
+.health-chart__legend i {
+  border-radius: 999px;
+  display: block;
+  flex: 0 0 8px;
+  height: 8px;
+  width: 8px;
 }
 
 .stat-grid {
@@ -591,6 +709,10 @@ button:disabled {
   .telemetry {
     grid-column: 1 / -1;
     grid-template-columns: 220px 1fr 1fr;
+  }
+
+  .stat-grid {
+    grid-column: 1 / -1;
   }
 }
 
