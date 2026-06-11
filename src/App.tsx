@@ -406,6 +406,37 @@ export default function App() {
     startPreview();
   }
 
+  function rerollUnderdogSeed() {
+    const targetScore = 30;
+    const maxAttempts = 250;
+    let bestSeed = seed;
+    let bestScore = underdogScore.value;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const candidateSeed = `underdog-${Date.now().toString(36)}-${attempt.toString(36)}`;
+      const candidateConfig: FightConfig = {
+        ...config,
+        seed: candidateSeed,
+      };
+      const candidateResult = simulateFight(candidateConfig);
+      const candidateDuration = getMatchDuration(candidateResult);
+      const candidateScore = calculateUnderdogScore(candidateResult, candidateDuration).value;
+
+      if (candidateScore > bestScore) {
+        bestSeed = candidateSeed;
+        bestScore = candidateScore;
+      }
+      if (candidateScore >= targetScore) {
+        bestSeed = candidateSeed;
+        break;
+      }
+    }
+
+    setSeed(bestSeed);
+    setFrameIndex(0);
+    startPreview();
+  }
+
   function ensureSoundEngine() {
     if (!soundEngineRef.current) {
       soundEngineRef.current = createSoundEngine();
@@ -580,12 +611,15 @@ export default function App() {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Simulation control room</p>
-          <h1>Bot Fighter Lab</h1>
+          <p className="eyebrow">Developer Portal</p>
+          <h1>Bot Lab</h1>
         </div>
         <div className="topbar__actions">
           <button className="icon-button" title="Random seed" onClick={randomizeSeed}>
             <Shuffle size={19} />
+          </button>
+          <button className="icon-button" title="Reroll until underdog score is 30+" onClick={rerollUnderdogSeed}>
+            <Dices size={19} />
           </button>
           <button
             className="icon-button"
